@@ -1,0 +1,26 @@
+# cordis.patch.yml — dsh bundle 注册补丁
+# =============================================================================
+# 三条硬性纪律（违反任一条都会让 dsh 起不来，且报错信息指不到根因）
+#
+# 1. 必须无 BOM。
+#    PowerShell 的 `Set-Content -Encoding utf8` 会写 UTF-8 BOM（EF BB BF），
+#    js-yaml 解析失败后 dsh 会进入崩溃死循环（dsh-bundle-deploy skill 坑 1）。
+#    本文件一律用
+#      [System.IO.File]::WriteAllText($p, $c, [System.Text.UTF8Encoding]::new($false))
+#    写出，并在写完后读前 3 字节断言不是 EF BB BF。
+#
+# 2. 只用 `- insert:`。
+#    `- merge:` / `- override:` 会与 profile 已有的 cordis.yml 产生
+#    难以预期的合并结果；bundle patch 的场景只需要"把自己挂上去"。
+#
+# 3. 每条 insert 必须同时带 id 与 name。
+#    id   —— 补丁内的唯一键（可自定义，用 kebab-case）；
+#    name —— cordis loader 真正去 require 的**包名**，必须是 package.json 的 name，
+#            不是 index.ts 里 `export const name`。两者不同是刻意的：
+#            包名带 dsh- 前缀便于在 node_modules 里识别，插件名用于日志与诊断。
+#
+# 落位方式（T5.3，本次不执行）：bundle 拷到 profiles/node_modules/dsh-comp-tool/，
+# 由 package.json 的 "dsh": { "bundle": { "patch": "./cordis.patch.yml" } } 被发现。
+- insert:
+    - id: comp-tool
+      name: dsh-comp-tool

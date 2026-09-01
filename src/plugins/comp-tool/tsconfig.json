@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "types": ["node"],
+
+    "strict": true,
+    // ★ 必须真正产出 lib/：package.json 的 main 指向 lib/index.js。
+    //   曾配置 noEmit:true —— 那样 lib/ 永远不存在，cordis loader 解析必失败。
+    //   ESM 下相对导入必须带 .js 后缀，故不能再开 allowImportingTsExtensions
+    //   （它要求 noEmit 或 emitDeclarationOnly，与产出 lib/ 互斥）。
+    "rootDir": "src",
+    "outDir": "lib",
+    "declaration": true,
+    "sourceMap": true,
+    "noEmitOnError": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "lib", "src/__tests__"]
+}

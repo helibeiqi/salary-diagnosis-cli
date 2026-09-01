@@ -1,0 +1,1 @@
+{"工号":"emp_id","姓名":"name","部门":"dept","职级":"level","岗位":"job_title","职族":"job_family","绩效":"perf_grade","司龄(年)":"tenure_years","固定浮动比":"pay_mix","薪资":"monthly_salary","年度总现金(元)":"annual_total_cash","评估":"job_score","下限":"band_min","中位值":"band_mid","上限":"band_max","P25":"mkt_p25","P50":"mkt_p50","P75":"mkt_p75"}
