@@ -433,6 +433,9 @@ def _resolve_perf_weights(enriched: pd.DataFrame,
                           custom_weights: Optional[Dict[str, float]]
                           ) -> Optional[pd.Series]:
     """返回每人的绩效权重 Series；没有可用绩效列时返回 None。"""
+    # 防御：工资表天然不含 perf_grade 列，缺失时直接回退（否则 KeyError 崩）。
+    if "perf_grade" not in enriched.columns:
+        return None
     src = custom_weights or perf_weights or PERF_WEIGHTS
     if enriched["perf_grade"].isna().all():
         return None
