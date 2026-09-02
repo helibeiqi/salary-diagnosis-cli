@@ -1105,18 +1105,48 @@ def confirm_mapping(session_id: str, mapping: Dict[str, str],
     covered = set(mapping.values())
     missing_required = [f for f in REQUIRED_FIELDS if f not in covered]
 
+    warnings: List[str] = []
+
+    # ---- 2.5) R1：缺 level 但有 job_title → 启发式推断职级 ----------------
+    #  设计判断：level 是整条流水线的分组主键，缺了会被 clean_dataframe 整行剔除，
+    #  导致「能诊断的人数」骤降（实测发放表开箱只用上 4/9）。
+    #  这里在清洗前先用确定性启发式从 job_title 补 level，覆盖率透明披露，
+    #  由用户决定「推断够不够用」——本函数只补数据，不替用户做可信度判断。
+    level_infer_report = None
+    df_for_clean = session.df
+    if "level" not in covered and "job_title" in covered:
+        from .level_infer import infer_levels as _infer_levels
+        title_src = [k for k, v in mapping.items() if v == "job_title"]
+        tcol = title_src[0] if title_src else "job_title"
+        df_for_clean, level_infer_report = _infer_levels(session.df, title_col=tcol)
+        if level_infer_report and level_infer_report.get("inferred", 0) > 0:
+            # 已通过推断补上 level：从必填缺口移除，并提示覆盖率
+            missing_required = [f for f in missing_required if f != "level"]
+            cov = float(level_infer_report.get("coverage", 0.0))
+            warnings.append(
+                f"未提供 level（职级），已根据 job_title 启发式推断："
+                f"覆盖率 {cov:.0%}（{level_infer_report['inferred']}/"
+                f"{level_infer_report['total']}）。"
+                f"未识别职位示例：{level_infer_report['unresolved_samples'] or '无'}"
+            )
+        elif level_infer_report:
+            warnings.append(
+                f"未提供 level 且无法从 job_title 推断"
+                f"（{level_infer_report['unresolved']} 行无匹配关键词），"
+                f"依赖职级的分析仍无法进行；建议手工补列后重跑。"
+            )
+
     # ---- 3) 应用映射 + 清洗 + 落盘 ------------------------------------------
     #  设计判断（偏离架构的显式说明）：
     #  架构把 clean_dataframe 列为内部函数，但若不在这里顺带清洗，
     #  会话里存的就是「改了名但没洗干净」的表，下游每个工具都得记得再洗一次，
     #  迟早漏掉。因此这里**一次做到位**：映射 → 清洗 → 存清洗后的表。
     #  clean_dataframe 保持幂等，单独再调一次结果完全一致。
-    df_clean, coerce_report = clean_dataframe(session.df, mapping=mapping)
+    df_clean, coerce_report = clean_dataframe(df_for_clean, mapping=mapping)
 
     mapped_fields = {tgt: src for src, tgt in mapping.items()}
     unmapped_columns = [c for c in raw_columns if str(c) not in {str(k) for k in mapping}]
 
-    warnings: List[str] = []
     if missing_required:
         warnings.append(
             f"必填字段仍缺失：{missing_required}。"
@@ -1142,6 +1172,7 @@ def confirm_mapping(session_id: str, mapping: Dict[str, str],
         },
         "coerce_report": coerce_report,
         "shape": {"rows": int(df_clean.shape[0]), "cols": int(df_clean.shape[1])},
+        "level_inference": level_infer_report,
     }
     store.save_df(session_id, df_clean)
     store.set_meta(session_id, meta_patch)

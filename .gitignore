@@ -13,15 +13,16 @@ __pycache__/
 # 真实薪资数据（仅允许 data/ 下的脱敏样例；private 不跟踪）
 data/private/
 
-# 运行期产物（工具每次跑都会重新生成，进仓库只会造成「污染」）
+# 运行期产物（工具每次跑都会重新生成，进仓库只会造成「污染」+ 真实薪资泄漏）
 #   report/薪酬诊断报告_YYYYMMDD_HHMMSS.{md,html} —— 报告导出
 #   data/band_YYYYMMDD_HHMMSS.csv                 —— 带宽表导出
-#   assets/viztest_*_chart.html                   —— 图表烟囱测试
-# 注意：assets/ 下 6 个无时间戳的图表 html 是**有意提交**的样例，不在忽略之列。
+#   assets/*.html                                 —— 图表（内嵌真实薪资数值，每次重生成，
+#                                                    绝不入库，避免历史运行的真实数据被提交）
 report/*.md
 report/*.html
 data/band_*.csv
-assets/viztest_*.html
+assets/*.html
+!assets/.gitkeep
 
 # ⚠️ 安全红线：src/data/ 是 increase 明细导出目录（increase.py::_export_detail），
 #    文件含 monthly_salary / new_monthly_salary 等**行级薪资明细**，

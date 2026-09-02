@@ -1611,6 +1611,9 @@ img{max-width:100%;}
 a{color:var(--accent);}
 hr{border:0; border-top:1px solid var(--line); margin:32px 0;}
 .chart{margin:20px 0 28px; padding:12px; border:1px solid var(--line); border-radius:6px;}
+.watermark-banner{background:#C62828; color:#fff; font-weight:700; font-size:14px;
+       text-align:center; padding:11px 16px; border-radius:6px; margin:0 0 22px;
+       letter-spacing:.3px; box-shadow:0 1px 6px rgba(198,40,40,.35);}
 .footer{margin-top:48px; padding-top:18px; border-top:1px solid var(--line);
         color:var(--sub); font-size:12.5px; text-align:center;}
 @media print{body{background:#fff;} .page{box-shadow:none; padding:0;} h2{page-break-after:avoid;}}
@@ -1665,12 +1668,16 @@ def _embed_figures(html_body: str, figures: List[Dict[str, Any]]) -> str:
 
 
 def _md_to_html(md: str, title: str, subtitle: str,
-                figures: List[Dict[str, Any]]) -> str:
+                figures: List[Dict[str, Any]],
+                classification: str = "real") -> str:
     """
     Markdown → 完整 HTML（含 CSS、中文字体、内嵌图表 div）。
 
     plotly.js 只引入一次：从第一张图的 div 里抽出 CDN 地址放进 <head>，
     其余图的 script 标签用 strip_plotlyjs_cdn 剥掉 —— 否则 6 张图会重复加载 6 次 3MB。
+
+    classification : "real"（默认，含真实薪酬）| "sanitized"（已脱敏）。
+        决定页脚与顶部水印措辞——**绝不再谎称"脱敏模拟数据"**。
     """
     body = md
     try:
@@ -1689,6 +1696,19 @@ def _md_to_html(md: str, title: str, subtitle: str,
             plotly_js = m.group(0)
             break
 
+    # —— 数据护栏（R2）：真实数据必须有醒目水印，不得伪称脱敏 ——
+    if classification == "sanitized":
+        banner = ""
+        footer_text = ("本报告由「薪酬诊断 Agent（CCO Copilot）」自动生成 · "
+                       "数值由 Python 确定性计算产出 · 数据已脱敏处理"
+                       "（个体加盐哈希不可逆、薪资总额守恒），可安全外发")
+    else:
+        banner = ('<div class="watermark-banner">⚠️ 本报告含真实薪酬数据 · '
+                  '仅限本地查看 · 请勿外发或提交到公开仓库</div>\n')
+        footer_text = ("⚠️ 含真实薪酬数据 · 仅限本地使用 · 请勿外发 · "
+                       "本报告由「薪酬诊断 Agent（CCO Copilot）」自动生成 · "
+                       "数值由 Python 确定性计算产出")
+
     return (
         "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n"
         "<meta charset=\"utf-8\">\n"
@@ -1697,13 +1717,37 @@ def _md_to_html(md: str, title: str, subtitle: str,
         f"<script src=\"{plotly_js}\" charset=\"utf-8\"></script>\n"
         f"<style>{_CSS}</style>\n"
         "</head>\n<body>\n<div class=\"page\">\n"
+        f"{banner}"
         f"<h1>{html_lib.escape(title)}</h1>\n"
         f"<p class=\"meta\">{html_lib.escape(subtitle)}</p>\n"
         f"{body}\n"
-        "<div class=\"footer\">本报告由「薪酬诊断 Agent（CCO Copilot）」自动生成 · "
-        "数值由 Python 确定性计算产出 · 数据均为脱敏模拟数据</div>\n"
+        f"<div class=\"footer\">{footer_text}</div>\n"
         "</div>\n</body>\n</html>\n"
     )
+
+
+def _detect_salary_classification(meta: Any) -> str:
+    """
+    判断本报告数据是否已脱敏（R2 水印依据）。
+
+    优先级：
+      1. session.meta["data_classification"] 显式标记（"sanitized" / "real"）。
+      2. 兜底：数据源文件名为 `*_desensitized.csv` → 视为已脱敏
+         （desensitize() 产物的典型命名）。
+      3. 默认 "real"：CLI 绝大多数场景直接跑真实工资表，
+         宁可「多一道水印」也不要谎称脱敏。
+    """
+    if not isinstance(meta, dict):
+        return "real"
+    dc = meta.get("data_classification")
+    if dc in ("sanitized", "real"):
+        return dc
+    src = (meta.get("source_file")
+           or (meta.get("mapping") or {}).get("source_file")
+           or "")
+    if str(src).strip().endswith("_desensitized.csv"):
+        return "sanitized"
+    return "real"
 
 
 # =============================================================================
@@ -1785,6 +1829,15 @@ def generate_report(
         ctx = _ReportCtx(resolved, sid, REPORT_DIR, report_title)
         ctx.warnings.extend(warns)
 
+        # ---- 数据护栏（R2）：判断数据是否已脱敏，真实数据加醒目水印 ----
+        classification = _detect_salary_classification(getattr(resolved, "meta", None) or meta)
+        if classification != "sanitized":
+            guard_msg = ("⚠️ 薪酬数据护栏：本报告含真实薪酬数值，仅限本地查看，"
+                         "请勿外发或提交到公开仓库。如需外发，请先调用 desensitize() "
+                         "生成脱敏副本。")
+            ctx.warnings.append(guard_msg)
+            print(guard_msg, file=sys.stderr)
+
         wanted = _normalize_sections(include_sections)
         excluded = [t for t in SECTION_TITLES if wanted and t not in wanted]
 
@@ -1797,6 +1850,11 @@ def generate_report(
             "---",
             "",
         ]
+        if classification != "sanitized":
+            md_lines += [
+                "> ⚠️ **数据护栏**：本报告含真实薪酬数据，仅限本地查看，请勿外发。",
+                "",
+            ]
 
         sections_done: List[str] = []
         missing: List[str] = []
@@ -1849,7 +1907,8 @@ def generate_report(
             subtitle = (f"生成时间：{now}　｜　会话 ID：{sid}　｜　"
                         f"共 {len(sections_done)} 章　｜　图表 {len(ctx.figures)} 张")
             with open(html_path, "w", encoding="utf-8") as f:
-                f.write(_md_to_html(md_text, report_title, subtitle, ctx.figures))
+                f.write(_md_to_html(md_text, report_title, subtitle, ctx.figures,
+                                    classification=classification))
             html_out = html_path
 
         # ---- 图片路径存在性断言（AC-26） ----
