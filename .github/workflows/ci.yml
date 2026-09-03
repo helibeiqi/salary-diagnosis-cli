@@ -34,6 +34,12 @@ jobs:
       - name: Pytest（全量单测：schemas 契约 / meta 契约 / 脱敏往返 / 报告水印 / 影子路由）
         run: python -m pytest tests/ -q
 
+      - name: Golden standard（金标准数值口径对账，数值漂移唯一防线）
+        run: python tests/verify_golden.py
+
+      - name: E2E regression（FIX 回归：会话泄漏 / 守卫 / 产物清理）
+        run: python tests/qa_e2e.py
+
       - name: Security gate（敏感路径 / 网络 import 硬失败）
         shell: bash
         run: |

@@ -139,7 +139,7 @@ PYTHONIOENCODING=utf-8 C:/ProgramData/anaconda3/python.exe mock_data.py
 
 ### 2) 本地离线入口（不经 dsh，适合演示/调试）
 ```bash
-PYTHONIOENCODING=utf-8 C:/ProgramData/anaconda3/python.exe main.py \
+PYTHONIOENCODING=utf-8 C:/ProgramData/anaconda3/python.exe run_agent.py \
     --file data/sample_salary.csv
 # 按对话式流程依次调用 11 个工具，最终在 report/ 落盘报告
 ```
