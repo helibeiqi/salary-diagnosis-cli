@@ -1625,6 +1625,9 @@ hr{border:0; border-top:1px solid var(--line); margin:32px 0;}
 .watermark-banner{background:#C62828; color:#fff; font-weight:700; font-size:14px;
        text-align:center; padding:11px 16px; border-radius:6px; margin:0 0 22px;
        letter-spacing:.3px; box-shadow:0 1px 6px rgba(198,40,40,.35);}
+.watermark-banner-synthetic{background:#37474F; color:#ECEFF1; font-weight:600;
+       font-size:13.5px; text-align:center; padding:10px 16px; border-radius:6px;
+       margin:0 0 22px; letter-spacing:.3px; box-shadow:0 1px 6px rgba(55,71,79,.30);}
 .footer{margin-top:48px; padding-top:18px; border-top:1px solid var(--line);
         color:var(--sub); font-size:12.5px; text-align:center;}
 @media print{body{background:#fff;} .page{box-shadow:none; padding:0;} h2{page-break-after:avoid;}}
@@ -1687,8 +1690,12 @@ def _md_to_html(md: str, title: str, subtitle: str,
     plotly.js 只引入一次：从第一张图的 div 里抽出 CDN 地址放进 <head>，
     其余图的 script 标签用 strip_plotlyjs_cdn 剥掉 —— 否则 6 张图会重复加载 6 次 3MB。
 
-    classification : "real"（默认，含真实薪酬）| "sanitized"（已脱敏）。
-        决定页脚与顶部水印措辞——**绝不再谎称"脱敏模拟数据"**。
+    classification : "real"（默认，含真实薪酬）| "sanitized"（已脱敏）| "synthetic"（模拟数据）。
+        决定页脚与顶部水印措辞——
+          - real      ：红色醒目水印「含真实薪酬数据 · 请勿外发」
+          - sanitized ：无横幅，页脚标注「数据已脱敏，可安全外发」
+          - synthetic ：中性蓝灰横幅「模拟数据，可安全演示」（随机合成，不含真实自然人），
+                        **绝不**使用红色真实数据措辞。
     """
     body = md
     try:
@@ -1707,13 +1714,21 @@ def _md_to_html(md: str, title: str, subtitle: str,
             plotly_js = m.group(0)
             break
 
-    # —— 数据护栏（R2）：真实数据必须有醒目水印，不得伪称脱敏 ——
+    # —— 数据护栏（R2）：按数据分级渲染不同顶部横幅 + 页脚 ——
+    # real=红字真实数据警示；synthetic=中性蓝灰「模拟数据」横幅（可安全演示）；
+    # sanitized=无横幅、页脚标注已脱敏可外发。绝不把模拟数据伪装成真实/脱敏。
     if classification == "sanitized":
         banner = ""
         footer_text = ("本报告由「薪酬诊断 Agent（CCO Copilot）」自动生成 · "
                        "数值由 Python 确定性计算产出 · 数据已脱敏处理"
                        "（个体加盐哈希不可逆、薪资总额守恒），可安全外发")
-    else:
+    elif classification == "synthetic":
+        banner = ('<div class="watermark-banner watermark-banner-synthetic">'
+                  '🧪 本报告为<b>模拟数据</b>演示 · 全部姓名/薪资均为随机合成，'
+                  '不含任何真实自然人 · 可安全对外演示</div>\n')
+        footer_text = ("本报告由「薪酬诊断 Agent（CCO Copilot）」自动生成 · "
+                       "数值由 Python 确定性计算产出 · 数据为随机合成的模拟数据，可安全演示")
+    else:  # real（含未识别）
         banner = ('<div class="watermark-banner">⚠️ 本报告含真实薪酬数据 · '
                   '仅限本地查看 · 请勿外发或提交到公开仓库</div>\n')
         footer_text = ("⚠️ 含真实薪酬数据 · 仅限本地使用 · 请勿外发 · "
@@ -1739,20 +1754,23 @@ def _md_to_html(md: str, title: str, subtitle: str,
 
 def _detect_salary_classification(meta: Any) -> str:
     """
-    判断本报告数据是否已脱敏（R2 水印依据）。
+    判断本报告数据分级（R2 水印依据），返回规范值："real" / "sanitized" / "synthetic"。
 
     优先级：
-      1. session.meta["data_classification"] 显式标记（"sanitized" / "real"）。
+      1. session.meta["data_classification"] 显式标记（"sanitized" / "real" / "synthetic"）。
+         "simulated" 视为 "synthetic" 的别名（config.yaml 用 simulated，加载端已归一）。
       2. 兜底：数据源文件名为 `*_desensitized.csv` → 视为已脱敏
          （desensitize() 产物的典型命名）。
       3. 默认 "real"：CLI 绝大多数场景直接跑真实工资表，
-         宁可「多一道水印」也不要谎称脱敏。
+         宁可「多一道水印」也不要谎称脱敏/模拟。
     """
     if not isinstance(meta, dict):
         return "real"
-    dc = meta.get("data_classification")
+    dc = (meta.get("data_classification") or "").strip().lower()
     if dc in ("sanitized", "real"):
         return dc
+    if dc in ("synthetic", "simulated"):
+        return "synthetic"
     src = (meta.get("source_file")
            or (meta.get("mapping") or {}).get("source_file")
            or "")
@@ -1876,9 +1894,10 @@ def generate_report(
         ctx = _ReportCtx(resolved, sid, REPORT_DIR, report_title)
         ctx.warnings.extend(warns)
 
-        # ---- 数据护栏（R2）：判断数据是否已脱敏，真实数据加醒目水印 ----
+        # ---- 数据护栏（R2）：判断数据分级，仅真实数据加醒目红字水印 + 护栏 ----
+        # synthetic（模拟数据）/ sanitized（已脱敏）均不触发真实数据护栏与 data_guard sidecar。
         classification = _detect_salary_classification(getattr(resolved, "meta", None) or meta)
-        if classification != "sanitized":
+        if classification == "real":
             guard_msg = ("⚠️ 薪酬数据护栏：本报告含真实薪酬数值，仅限本地查看，"
                          "请勿外发或提交到公开仓库。如需外发，请先调用 desensitize() "
                          "生成脱敏副本。")
@@ -1897,7 +1916,7 @@ def generate_report(
             "---",
             "",
         ]
-        if classification != "sanitized":
+        if classification == "real":
             md_lines += [
                 "> ⚠️ **数据护栏**：本报告含真实薪酬数据，仅限本地查看，请勿外发。",
                 "",
@@ -1955,7 +1974,7 @@ def generate_report(
             subtitle = (f"生成时间：{now}　｜　会话 ID：{sid}　｜　"
                         f"共 {len(sections_done)} 章　｜　图表 {len(ctx.figures)} 张")
             # ---- R4：真实数据护栏 sidecar（仅在未确认且确为真实数据时写）----
-            if classification != "sanitized" and not i_know_real_data:
+            if classification == "real" and not i_know_real_data:
                 guard_path = os.path.join(REPORT_DIR, f"{report_title}_{ts}.data_guard.md")
                 _write_data_guard(guard_path, report_title, sid, now, report_path)
                 guard_msg = ("⚠️ 真实薪酬数据护栏：已生成 data_guard.md 安全提示文件"

@@ -928,10 +928,44 @@ def clean_dataframe(df: pd.DataFrame, mapping: Optional[Dict[str, str]] = None
 # 六、工具 1：load_salary_data
 # =============================================================================
 
+# 数据分级规范值（R2/R3 护栏依据）
+_DATA_CLASS_LEGAL = ("real", "sanitized", "synthetic")
+# 文件名关键字 → 分级 的兜底映射（synthetic 既含 sample/mock 也含 messy，
+# 因为 messy_salary.csv 同样是随机合成的演示数据，绝不可误标真实）
+_SYNTHETIC_NAME_HINTS = ("sample", "mock", "messy", "synthetic", "simulated", "demo")
+
+
+def _resolve_data_classification(file_path: str, explicit: Optional[str] = None) -> str:
+    """
+    解析数据分级（R2/R3 护栏依据），返回规范值之一："real" / "sanitized" / "synthetic"。
+
+    优先级
+    ------
+    1. 显式 ``data_classification`` 参数：合法值直接采纳；"simulated" 归一为 "synthetic"；
+       非法值（非 None 且不在白名单）回退到文件名兜底并记一条 note 由调用方决定。
+    2. 文件名兜底：以 ``_desensitized.csv`` 结尾 → "sanitized"；
+       含 sample/mock/messy/synthetic/simulated/demo 关键字 → "synthetic"。
+    3. fail-safe：以上都不命中 → "real"（宁可多一道水印，绝不谎称脱敏/模拟）。
+    """
+    raw = (explicit or "").strip().lower()
+    if raw in _DATA_CLASS_LEGAL:
+        return raw
+    if raw == "simulated":          # config.yaml 用 "simulated"，规范为 "synthetic"
+        return "synthetic"
+    if raw:                          # 显式给了但非法 → 不采纳，落到文件名兜底
+        pass
+    name = os.path.basename(file_path or "").lower()
+    if name.endswith("_desensitized.csv"):
+        return "sanitized"
+    if any(h in name for h in _SYNTHETIC_NAME_HINTS):
+        return "synthetic"
+    return "real"
+
 
 @tool_guard
 def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
-                     session_id: Optional[str] = None) -> Dict[str, Any]:
+                     session_id: Optional[str] = None,
+                     data_classification: Optional[str] = None) -> Dict[str, Any]:
     """
     读取薪酬文件并返回「预览 + 映射建议 + 列画像」，同时建立（或复用）会话。
 
@@ -946,6 +980,16 @@ def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
         Excel 工作表名；留空用第一个 sheet。
     session_id : str, optional
         传入则**复用**已有会话（覆盖其数据表），留空则新建。
+    data_classification : str, optional
+        数据分级标记，覆盖基于文件名的自动判定。可选值：
+          - "real"      ：含真实薪酬（默认，会触发报告红字水印与护栏）
+          - "sanitized" ：已脱敏（可安全外发，无红字水印）
+          - "synthetic" / "simulated" ：随机合成的模拟数据（如 mock_data.py 产出），
+            报告渲染中性「模拟数据」横幅，**不**触发真实数据护栏与红字水印。
+        留空时按文件名兜底：含 `_desensitized.csv` → sanitized；
+        含 sample / mock / messy / synthetic / simulated 关键字 → synthetic；否则 real。
+        解析后的规范值（simulated 归一为 synthetic）写入 session meta，
+        重加载后护栏判定依然 durable（R3）。
 
     返回
     -------
@@ -998,10 +1042,12 @@ def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
         "shape": {"rows": int(df.shape[0]), "cols": int(df.shape[1])},
     }
     # R3（完整性）：加载即写入数据分级标记，使检测逻辑在重加载后依然 durable。
-    # 命名含 _desensitized.csv 视为脱敏产物，否则 fail-safe 视为真实数据（多一道水印）。
-    _src_for_cls = str(info.get("file_path") or "")
-    meta_patch["data_classification"] = (
-        "sanitized" if _src_for_cls.endswith("_desensitized.csv") else "real"
+    # 优先级：显式 data_classification 参数 > 文件名关键字兜底 > fail-safe 视为真实数据。
+    # synthetic / simulated 统一规范为 canonical "synthetic"（与 config.yaml
+    # shadow_routing.eligible_only_on 的 "simulated" 语义等价）。
+    meta_patch["data_classification"] = _resolve_data_classification(
+        file_path=str(info.get("file_path") or ""),
+        explicit=data_classification,
     )
     try:
         store.set_meta(session_id, meta_patch)

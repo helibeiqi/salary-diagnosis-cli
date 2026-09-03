@@ -49,6 +49,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+import numpy as np  # ndarray 序列化守卫用（pandas 已依赖，无额外安装成本）
+
 # 本文件**刻意不 import** loader/band/diagnose/... —— 全部懒加载，见模块 docstring
 from .errors import CompToolError, error_payload
 
@@ -616,11 +618,12 @@ def to_lossless(obj: Any, _depth: int = 0) -> Any:
             return payload
         if isinstance(obj, pd.Series):
             return to_lossless(obj.to_dict(), _depth + 1)
-        try:
-            if pd.isna(obj):  # 兜住 pd.NA 等标量缺失值
-                return None
-        except (TypeError, ValueError):
-            pass
+        # P2-6：numpy 数组（含 ndarray / masked array / 0-d 数组）没有专门序列化分支，
+        # 若直接 `pd.isna(obj)` 会返回数组，后续 `if 数组` 触发
+        # "The truth value of an array is ambiguous" 的 DeprecationWarning
+        # （历史累计 ~190 次噪声）。先转 list 再递归。
+        if isinstance(obj, np.ndarray):
+            return to_lossless(obj.tolist(), _depth + 1)
 
     # --- 日期 ---------------------------------------------------------------
     import datetime as _dt
@@ -629,13 +632,21 @@ def to_lossless(obj: Any, _depth: int = 0) -> Any:
     if isinstance(obj, _dt.timedelta):
         return obj.total_seconds()
 
-    # --- 容器 ---------------------------------------------------------------
+    # --- 容器（必须在标量 pd.isna 之前：pd.isna(list/ndarray) 会返回数组，
+    #        直接进 `if` 即触发上述真值歧义告警）------------------------------
     if isinstance(obj, dict):
         return {str(k): to_lossless(v, _depth + 1) for k, v in obj.items()}
     if isinstance(obj, (list, tuple, set, frozenset)):
         return [to_lossless(x, _depth + 1) for x in obj]
     if isinstance(obj, bytes):
         return obj.decode("utf-8", errors="replace")
+
+    # --- 标量缺失值兜底（仅 pd.NA / np.nan 等标量会走到这里；容器/数组已在上面处理）--
+    try:
+        if pd.isna(obj):
+            return None
+    except (TypeError, ValueError):
+        pass
 
     # --- 兜底：不可序列化对象一律转字符串（绝不让它到 json.dumps 那一步才崩）--
     return str(obj)
@@ -1013,9 +1024,13 @@ def _resolve_classification(sid: Optional[str]) -> str:
     try:
         from .session import get_store
         meta = get_store().get_meta(str(sid))
-        dc = (meta or {}).get("data_classification")
+        dc = (meta or {}).get("data_classification") or ""
+        dc = dc.lower() if isinstance(dc, str) else ""
+        # 规范值直通（"simulated" 视为 "synthetic" 的别名）
         if dc in ("sanitized", "real"):
             return dc
+        if dc in ("synthetic", "simulated"):
+            return "synthetic"
         return "unknown"
     except Exception:  # noqa: BLE001
         return "unknown"
