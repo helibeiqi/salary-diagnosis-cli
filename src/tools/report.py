@@ -1750,6 +1750,41 @@ def _detect_salary_classification(meta: Any) -> str:
     return "real"
 
 
+def _write_data_guard(path: str, title: str, sid: str, now: str,
+                      report_md_path: Optional[str]) -> None:
+    """
+    R4：真实数据护栏 sidecar。与报告同目录，明确告知风险与处置路径。
+    失败静默（绝不能因 sidecar 写失败而拖垮主报告）。
+    """
+    md_name = os.path.basename(report_md_path) if report_md_path else "(见同目录 .md)"
+    lines = [
+        f"# ⚠️ 数据护栏提示（{title}）",
+        "",
+        f"> 生成时间：{now}　｜　会话 ID：`{sid}`",
+        "",
+        "---",
+        "",
+        "**本报告 / 图表包含真实薪酬数值。**",
+        "",
+        "安全须知：",
+        "- 仅限本机查看，**严禁**外发、上传公开仓库或通过任何云端服务传输。",
+        "- 如需对外演示或共享，请先调用 `desensitize()` 生成脱敏副本，再基于脱敏副本生成报告。",
+        "- 已确认本地使用、仍需消除本提示时，调用 "
+        "`generate_report(..., i_know_real_data=True)`",
+        "（CLI：`--i-know-this-is-real-data`）。",
+        "",
+        "相关产物：",
+        f"- 报告（Markdown，已含水印）：`{md_name}`",
+        f"- 本报告所属会话：`{sid}`",
+        "",
+    ]
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines).rstrip() + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # =============================================================================
 # 十四、主入口
 # =============================================================================
@@ -1761,6 +1796,7 @@ def generate_report(
     fmt: str = "markdown",
     session: Any = None,
     meta: Any = None,
+    i_know_real_data: bool = False,
 ) -> Dict[str, Any]:
     """
     生成七章结构的薪酬诊断报告（Markdown / HTML / 两者）。
@@ -1903,9 +1939,19 @@ def generate_report(
                 f.write(md_text)
 
         html_out: Optional[str] = None
+        guard_path: Optional[str] = None
         if want_html:
             subtitle = (f"生成时间：{now}　｜　会话 ID：{sid}　｜　"
                         f"共 {len(sections_done)} 章　｜　图表 {len(ctx.figures)} 张")
+            # ---- R4：真实数据护栏 sidecar（仅在未确认且确为真实数据时写）----
+            if classification != "sanitized" and not i_know_real_data:
+                guard_path = os.path.join(REPORT_DIR, f"{report_title}_{ts}.data_guard.md")
+                _write_data_guard(guard_path, report_title, sid, now, report_path)
+                guard_msg = ("⚠️ 真实薪酬数据护栏：已生成 data_guard.md 安全提示文件"
+                             f"（{guard_path}）。该报告含真实薪酬，仅限本地查看，请勿外发。"
+                             "若确认本地使用，可传 i_know_real_data / --i-know-this-is-real-data 抑制此提示。")
+                ctx.warnings.append(guard_msg)
+                print(guard_msg, file=sys.stderr)
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(_md_to_html(md_text, report_title, subtitle, ctx.figures,
                                     classification=classification))
@@ -1921,6 +1967,7 @@ def generate_report(
             title=report_title,
             report_path=report_path if want_md else None,
             html_path=html_out,
+            data_guard_path=guard_path,
             sections=sections_done,
             missing_sections=missing,
             excluded_sections=excluded,

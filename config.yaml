@@ -97,6 +97,20 @@ models:
     # 允许回退时的降级顺序（先试本地，再试本地，最后才是云端）
     chain: ["ollama-local", "vllm-local"]
 
+    # --- Phase 3：数据分级感知熔断器（架构 §4.2 / ROADMAP Phase 3）------
+    # 维护每 provider 失败计数 / 429 / 402 速率；跳闸后动作**按数据分级**：
+    #   on_real      —— 真实数据：硬停 + 告警，**绝不**自动回退云端（守住红线）
+    #   on_sanitized —— 脱敏/模拟：按上面 chain 降级到最便宜的安全 provider
+    # 本 Python 侧是政策引擎的权威实现（circuit_breaker.py）；
+    # 强制点在 TS service.ts 调用模型前咨询它（见设计文档 §9 / §4.2）。
+    circuit_breaker:
+      enabled: true
+      failure_threshold: 5      # 窗口内连续失败达到该值即跳闸
+      window_s: 60              # 失败计数滑动窗口（秒）
+      half_open_after_s: 30     # 跳闸后多久进入半开探测（允许少量流量验证恢复）
+      on_real: "hard_stop"      # 真实数据：跳闸→硬停+告警，绝不自动上云
+      on_sanitized: "fallback"  # 脱敏/模拟：按 chain 降级到最便宜安全 provider
+
     # 本地模型不可用时的提示文案（原样展示给用户）
     local_unavailable_hint: >-
       本地模型（Ollama / vLLM）当前不可用。为保护薪资数据，系统不会自动切换到云端模型。
@@ -184,6 +198,18 @@ sandbox:
   # 目标是防止模型误写危险代码，与 dsh 官方对 worker-thread 的表述保持一致。
   isolated: "subprocess"     # 一次性子进程；每次运行全新状态
 
+  # --- Phase 2：常驻沙箱 + 配额（架构 §4.4 / ROADMAP Phase 2）-------------
+  # resident：复用解释器，避免每次冷启一次性 subprocess（2–3s + 重 import pandas）。
+  #   常驻 worker 懒启动、进程死亡自动重启、失败自动回退一次性 subprocess（安全兜底）。
+  #   设为 false 可完全回到旧的一次性 subprocess 行为（便于 A/B 与回滚）。
+  resident: true
+  # 全局并发上限：单 worker 进程内同时最多 K 个沙箱执行（线程信号量）。
+  max_concurrent: 2
+  # 每会话调用配额：滑动窗口内最多 M 次沙箱调用，杜绝失控循环耗尽本机资源。
+  quota:
+    max_calls: 50
+    window_s: 60
+
 # -----------------------------------------------------------------------------
 # 六、图表与报告（PRD FR-14 / 架构 §5.5）
 # -----------------------------------------------------------------------------
@@ -269,6 +295,65 @@ business:
     #   必须以 schemas.JOB_SCORE_SCALE 为唯一来源，此处仅作说明，不要改。
     score_scale: 160.0
     missing_subfactor_fill: "factor_mean"   # factor_mean | fixed_5
+
+# -----------------------------------------------------------------------------
+# 七·五、遥测总线（Phase 0 — 自主优化架构师）
+# -----------------------------------------------------------------------------
+# 零 PII 的本地调用账本：每次 tools/call 追加一条
+# {tool, ok, code, elapsed_ms, session_classification} 到 .state/telemetry.parquet。
+# 唯一用途：让"每会话成本 / 每工具延迟 / 失败率"可见，从而能优化与自愈。
+# 纪律：telemetry 里绝不写任何行级薪资或员工 ID（复用 security.logging 的口径）。
+# 关闭方式（独立模式零痕迹）：
+#   ① 环境变量 COMP_TELEMETRY_OFF=1 —— 一键零痕迹（演示用，优先级最高）；
+#   ② 下面 enabled: false —— 仓库级默认关闭。
+# 两者都未禁用时默认开启（测量无害、零 PII）。
+telemetry:
+  enabled: true
+  state_dir: ".state"            # 与 paths.state_dir 一致；落盘 telemetry.parquet（已 gitignore）
+  flush_every: 20                # 内存缓冲达到该条数后落盘一次（降低高吞吐 worker 的 IO 抖动）
+
+# -----------------------------------------------------------------------------
+# 七·六、影子路由（Phase 4 — 自主优化架构师）
+# -----------------------------------------------------------------------------
+# 本段是「影子测试 + 模型路由」(架构 §4.3) 的**配置化开关**，与熔断器同款哲学：
+# 模型侧的"自动路由到更便宜模型"只在脱敏/模拟数据上生效，真实数据路径永远 baseline。
+#
+# 运行期行为（src/tools/shadow_router.py）：
+#   * 线上对 ambiguous 列同时跑 baseline 与 candidate，候选只评分不生效（Shadow Traffic）；
+#   * 候选在 ≥ min_shadow_runs 次影子执行上满足
+#       accuracy ≥ baseline − max_acc_drop_pct%
+#       AND 成本降幅 ≥ min_cost_reduction_pct%
+#       AND 延迟降幅 ≥ min_latency_reduction_pct%
+#     → 自动晋升：mapping 子任务路由到 candidate；narration 子任务仍走 baseline；
+#   * 候选准确率骤降 → 自动回滚到 baseline + 告警；
+#   * classification == "real" 时，任何子任务都强制 baseline，绝不晋升/切候选（红线）。
+# Python 侧是决策权威实现；强制点在 TS service.ts 调用模型前咨询它（见设计文档 §10 / §9.3）。
+shadow_routing:
+  enabled: true
+  # baseline = 本地大模型（贵但准，作为对照基准）；candidate = 更小更快的本地模型（待晋升）
+  baseline_provider: "deepseek-r1:14b"
+  candidate_provider: "qwen2.5-7b"
+  # 子任务路由策略：mapping 允许晋升到候选；narration 固定 baseline（需大模型语义）
+  task_routing:
+    mapping: "candidate"
+    narration: "baseline"
+  # 晋升门槛（架构 §4.3）
+  promotion:
+    min_shadow_runs: 1000          # 至少 1000 次影子执行才敢下结论
+    max_acc_drop_pct: 2.0          # 候选准确率不得低于 baseline − 2%
+    min_cost_reduction_pct: 50.0   # 候选成本须 ↓≥50%
+    min_latency_reduction_pct: 40.0 # 候选延迟须 ↓≥40%
+  # 初始权重（未晋升：mapping 全走 baseline）。晋升后由代码改写为 {baseline:0, candidate:1}
+  weights:
+    mapping: { baseline: 1.0, candidate: 0.0 }
+  # 合成分数权重（score = 5·命中率 + 3·歧义召回 − w1·延迟(秒) − w2·成本(USD)）
+  scoring:
+    w1: 0.01
+    w2: 0.0001
+  # 仅这些分级允许参与晋升/路由（真实数据永远不在内）
+  eligible_only_on: ["sanitized", "simulated"]
+  # 落盘状态（晋升/权重/累计统计），.state/ 已 gitignore
+  state_file: ".state/shadow_router.json"
 
 # -----------------------------------------------------------------------------
 # 八、离线与可复现（PRD NFR-06 / NFR-08）

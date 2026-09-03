@@ -1,0 +1,51 @@
+name: CI — 单测 + 安全闸门
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 权限最小化：本流水线只读仓库、只跑测试与本地扫描，不发布、不部署。
+permissions:
+  contents: read
+
+jobs:
+  test-and-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout（全量历史，便于 diff 基线）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # 核心依赖（与 anaconda 环境对齐的最小集）：
+          # pandas/numpy 算数；pyyaml 读 config；openpyxl 读 xlsx；plotly 出图；pytest 跑测试
+          pip install "pandas" "numpy" "pyyaml" "openpyxl" "plotly" "pytest"
+
+      - name: Pytest（全量单测：schemas 契约 / meta 契约 / 脱敏往返 / 报告水印 / 影子路由）
+        run: python -m pytest tests/ -q
+
+      - name: Security gate（敏感路径 / 网络 import 硬失败）
+        shell: bash
+        run: |
+          # 解析基线：PR 用 base.sha；push 用 HEAD~1
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="$(git rev-parse HEAD~1)"
+          fi
+          # 取本 PR/提交相对基线的差异文件（A/C/M/R）
+          FILES=$(git diff --name-only --diff-filter=ACMR "${BASE}...HEAD")
+          echo "Changed files (diff-filter=ACMR):"
+          echo "${FILES:-<none>}"
+          # 安全闸门：敏感目录入库 / 核心引入网络 import → 退出码 1 使 CI 失败
+          python ci_security_gate.py ${FILES}

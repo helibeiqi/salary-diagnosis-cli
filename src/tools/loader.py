@@ -983,6 +983,12 @@ def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
         "coerce_report": {},
         "shape": {"rows": int(df.shape[0]), "cols": int(df.shape[1])},
     }
+    # R3（完整性）：加载即写入数据分级标记，使检测逻辑在重加载后依然 durable。
+    # 命名含 _desensitized.csv 视为脱敏产物，否则 fail-safe 视为真实数据（多一道水印）。
+    _src_for_cls = str(info.get("file_path") or "")
+    meta_patch["data_classification"] = (
+        "sanitized" if _src_for_cls.endswith("_desensitized.csv") else "real"
+    )
     try:
         store.set_meta(session_id, meta_patch)
     except Exception as exc:  # noqa: BLE001
@@ -1273,7 +1279,8 @@ def _is_pii_column(col: str) -> bool:
 def desensitize(file_path: str, output_path: Optional[str] = None,
                 salary_jitter: float = 0.15, seed: Optional[int] = None,
                 keep_ratio: bool = True, id_mode: str = "hash",
-                sheet_name: Optional[str] = None) -> Dict[str, Any]:
+                sheet_name: Optional[str] = None,
+                session_id: Optional[str] = None) -> Dict[str, Any]:
     """
     对真实薪酬文件做脱敏，产出可安全外发/用于演示的副本。
 
@@ -1468,6 +1475,15 @@ def desensitize(file_path: str, output_path: Optional[str] = None,
         )
     if seed is not None:
         warnings.append("本次使用了固定 seed，脱敏结果可复现；生产环境请留空 seed。")
+
+    # ---- R3：写入 durable 脱敏分级标记（即便重加载也带标记）----
+    # 这是把"绝不泄露"从脆弱的文件名约定升级为 session meta 的权威标记。
+    if session_id:
+        try:
+            from .session import get_store
+            get_store().set_meta(str(session_id), {"data_classification": "sanitized"})
+        except Exception:  # noqa: BLE001 - 标记失败不影响脱敏产物
+            pass
 
     return ok_result(
         output_path=target,

@@ -1,0 +1,86 @@
+[
+  {
+    "raw_column": "薪资",
+    "candidates": ["monthly_salary", "annual_total_cash"],
+    "expected": "monthly_salary",
+    "ambiguous": true,
+    "note": "同名无维度：示例值为月量级数字，应判月薪而非年薪。"
+  },
+  {
+    "raw_column": "年度总现金(元)",
+    "candidates": ["annual_total_cash", "monthly_salary"],
+    "expected": "annual_total_cash",
+    "ambiguous": false,
+    "note": "含'年度/总现金'强标识，确定性引擎可直接命中，模型不应'发挥'。"
+  },
+  {
+    "raw_column": "评估",
+    "candidates": ["job_score", "perf_grade"],
+    "expected": "job_score",
+    "ambiguous": true,
+    "note": "评估 既可指岗位评估分(job_score)也可指绩效等级(perf_grade)，需看取值分布。"
+  },
+  {
+    "raw_column": "绩效",
+    "candidates": ["perf_grade", "job_score"],
+    "expected": "perf_grade",
+    "ambiguous": false,
+    "note": "绩效等级标准字段，确定性命中。"
+  },
+  {
+    "raw_column": "P25",
+    "candidates": ["mkt_p25", "band_min"],
+    "expected": "mkt_p25",
+    "ambiguous": true,
+    "note": "P25 是市场分位；易与带宽下限 band_min 串线（两套下限共存场景）。"
+  },
+  {
+    "raw_column": "下限",
+    "candidates": ["band_min", "mkt_p25"],
+    "expected": "band_min",
+    "ambiguous": false,
+    "note": "带宽下限标准字段，确定性命中。"
+  },
+  {
+    "raw_column": "固定浮动比",
+    "candidates": ["pay_mix", "annual_total_cash"],
+    "expected": "pay_mix",
+    "ambiguous": false,
+    "note": "固浮比标准字段，确定性命中。"
+  },
+  {
+    "raw_column": "司龄(年)",
+    "candidates": ["tenure_years", "age"],
+    "expected": "tenure_years",
+    "ambiguous": false,
+    "note": "司龄（司龄≠年龄），确定性命中。"
+  },
+  {
+    "raw_column": "职族",
+    "candidates": ["job_family", "job_title"],
+    "expected": "job_family",
+    "ambiguous": true,
+    "note": "职族(job_family) 与 岗位(job_title) 易混，需看取值（技术/销售/管理/操作/职能）。"
+  },
+  {
+    "raw_column": "中位值",
+    "candidates": ["band_mid", "mkt_p50"],
+    "expected": "band_mid",
+    "ambiguous": false,
+    "note": "带宽中位值标准字段，确定性命中。"
+  },
+  {
+    "raw_column": "P50",
+    "candidates": ["mkt_p50", "band_mid"],
+    "expected": "mkt_p50",
+    "ambiguous": true,
+    "note": "P50 是市场分位；易与带宽中位值 band_mid 串线。"
+  },
+  {
+    "raw_column": "工号",
+    "candidates": ["emp_id", "name"],
+    "expected": "emp_id",
+    "ambiguous": false,
+    "note": "员工工号标准字段，确定性命中。"
+  }
+]

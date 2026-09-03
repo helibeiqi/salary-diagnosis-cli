@@ -48,6 +48,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -59,6 +60,13 @@ if __package__ in (None, ""):  # pragma: no cover - 子进程直跑时补包上�
     from src.tools.errors import CompToolError, ok_result, tool_guard  # type: ignore
 else:
     from .errors import CompToolError, ok_result, tool_guard
+
+# circuit_breaker 放在 errors 块之后：脚本直跑时 errors 块已把仓库根加入 sys.path，
+# 此处 `src.tools.circuit_breaker` 才能在 __main__ / --runner 两种模式下都解析成功。
+if __package__ in (None, ""):  # pragma: no cover - 子进程 / 直跑时补包上下文
+    from src.tools.circuit_breaker import ACTION_HARD_STOP, get_breaker
+else:
+    from .circuit_breaker import ACTION_HARD_STOP, get_breaker
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -94,6 +102,24 @@ class SandboxTimeout(CompToolError):
 
     code = "SANDBOX_TIMEOUT"
     default_hint = "请缩小数据范围、去掉循环内的重复计算，或把逻辑拆成多次执行。"
+
+
+class SandboxQuotaExceeded(CompToolError):
+    """超过沙箱并发 / 每会话配额（Phase 2 治理器）。"""
+
+    code = "SANDBOX_QUOTA_EXCEEDED"
+    default_hint = (
+        "沙箱调用过于频繁或并发过高。请合并分析逻辑、减少 run_comp_code 调用次数，"
+        "或稍后重试；沙箱配额用于防止失控循环耗尽本机资源。")
+
+
+class SandboxHardStop(CompToolError):
+    """真实数据会话下沙箱不可用 → 安全硬停（Phase 3 熔断器，绝不外发）。"""
+
+    code = "SANDBOX_HARD_STOP"
+    default_hint = (
+        "沙箱常驻 worker 不可用，且当前为真实数据会话，已按安全策略硬停。"
+        "请检查本地 Python 环境后重试；真实薪酬数据不会被发往任何外部服务。")
 
 
 # =============================================================================
@@ -198,51 +224,38 @@ def run_comp_code(code: str, description: str = "",
     started = time.perf_counter()
     timeout = max(1.0, min(float(timeout_s or DEFAULT_TIMEOUT_S), MAX_TIMEOUT_S))
     warnings = precheck(code)                       # L1：可能直接抛 SandboxViolation
+    resident_on = _resident_enabled()
 
-    payload = json.dumps({"code": code, "session_id": session_id},
-                         ensure_ascii=False)
-
-    # L4：一次性子进程 + 净化环境
-    env = {k: v for k, v in os.environ.items()
-           if not any(tok in k.upper() for tok in ("KEY", "TOKEN", "SECRET", "PASSWORD"))}
-    env["PYTHONIOENCODING"] = "utf-8"
-    env["PYTHONPATH"] = PROJECT_ROOT
-    env["COMP_SANDBOX"] = "1"
-
+    # --- Phase 2 治理器（信号量 + 每会话配额）---
+    _GOVERNOR.acquire(session_id)
     try:
-        proc = subprocess.run(
-            [sys.executable, os.path.abspath(__file__), "--runner"],
-            input=payload.encode("utf-8"),
-            capture_output=True, timeout=timeout,
-            cwd=PROJECT_ROOT, env=env,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise SandboxTimeout(
-            f"代码执行超过 {timeout:.0f} 秒已被终止。",
-            details={"timeout_s": timeout},
-        ) from exc
+        # --- Phase 2 常驻沙箱 + Phase 3 数据分级熔断 ---
+        if resident_on:
+            try:
+                from .registry import _resolve_classification as _rc
+                cls = _rc(session_id)
+            except Exception:  # noqa: BLE001
+                cls = "unknown"
+            inner = _RESIDENT.execute(code, session_id, timeout)
+            if inner is None:
+                # 常驻 worker 传输失败 → 咨询熔断器按数据分级决策
+                br = get_breaker()
+                br.report_failure("sandbox_worker")
+                decision = br.decide("sandbox_worker", cls)
+                if decision.action == ACTION_HARD_STOP:
+                    raise SandboxHardStop(
+                        "沙箱常驻 worker 不可用（真实数据会话，按安全策略硬停）。",
+                        details={"breaker": decision.to_dict()})
+                # 非真实数据路径：降级回退一次性 subprocess（安全兜底）
+                inner = _run_oneshot(code, session_id, timeout)
+            else:
+                get_breaker().record_success("sandbox_worker")
+        else:
+            inner = _run_oneshot(code, session_id, timeout)
+    finally:
+        _GOVERNOR.release()
 
     elapsed_ms = int((time.perf_counter() - started) * 1000)
-    raw_out = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
-
-    if proc.returncode != 0 and not raw_out:
-        # 子进程直接崩了（段错误 / os._exit）—— 进程隔离在这里体现价值：
-        # 主 worker 与会话状态毫发无伤
-        stderr_tail = (proc.stderr or b"").decode("utf-8", errors="replace")[-1200:]
-        raise CompToolError(
-            f"沙箱子进程异常退出（exit_code={proc.returncode}）。",
-            hint="请简化代码后重试；若持续失败，改用薪酬工具直接获取结果。",
-            details={"exit_code": proc.returncode, "stderr_tail": stderr_tail},
-        )
-
-    try:
-        inner = json.loads(raw_out.splitlines()[-1]) if raw_out else {}
-    except Exception as exc:  # noqa: BLE001
-        raise CompToolError(
-            f"沙箱返回内容无法解析：{exc}",
-            hint="这通常意味着代码往 stdout 打了非 JSON 内容；请只用 print() 输出结论。",
-            details={"stdout_tail": raw_out[-800:]},
-        ) from exc
 
     if not inner.get("ok"):
         raise CompToolError(
@@ -285,8 +298,8 @@ def run_comp_code(code: str, description: str = "",
         sandbox={
             "python": sys.executable.replace("\\", "/"),
             "timeout_s": timeout,
-            "exit_code": proc.returncode,
-            "isolated": "subprocess",
+            "mode": "resident" if resident_on else "subprocess",
+            "isolated": "subprocess" if not resident_on else "resident-worker",
             "allowed_modules": sorted(ALLOWED_MODULES),
             "note": "纵深防御的防呆层，非对抗恶意代码的安全边界。",
         },
@@ -388,22 +401,17 @@ class _ToolsProxy:
         return f"<tools {len(self._registry.tool_names()) - 1} 个薪酬工具>"
 
 
-def _runner() -> int:
+def execute_in_namespace(code: str, session_id: Optional[str]) -> Dict[str, Any]:
     """
-    子进程入口：从 stdin 读 {code, session_id}，在受限命名空间执行，
-    把 **一行 JSON** 写到 stdout。
+    在受限命名空间里执行代码，返回 **一行 JSON 友好的 dict**（不负责 IO）。
 
-    纪律：stdout 只允许出现这一行 JSON（沙箱内的 print 被重定向到 logs 列表），
-    否则父进程无法区分「代码的输出」与「协议的返回」。
+    这是一次性 ``--runner`` 子进程与常驻沙箱 worker **共用的执行核心**：
+    两者复用同一套 L2/L3 防护，区别在于"每请求起一个进程"还是
+    "一个进程内每请求换全新 namespace"。
+
+    返回 dict 含键：``ok`` / ``logs`` / ``result`` / ``truncated`` / ``warnings``；
+    失败时额外含 ``message`` / ``error_type`` / ``hint``。
     """
-    try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except Exception as exc:  # noqa: BLE001
-        sys.stdout.write(json.dumps({"ok": False, "message": f"入参解析失败：{exc}"}))
-        return 1
-
-    code = payload.get("code") or ""
-    session_id = payload.get("session_id")
     logs: List[str] = []
     truncated = False
     log_bytes = 0
@@ -442,14 +450,15 @@ def _runner() -> int:
         compiled = compile(code, "<comp_sandbox>", "exec")
         exec(compiled, namespace)                        # L2：受限命名空间
     except Exception as exc:  # noqa: BLE001
-        sys.stdout.write(json.dumps({
+        return {
             "ok": False,
             "message": f"{type(exc).__name__}: {exc}",
             "error_type": type(exc).__name__,
             "logs": logs,
+            "truncated": truncated,
+            "warnings": warnings,
             "hint": "请检查代码逻辑；可用对象：pd / np / math / statistics / json / tools / comp。",
-        }, ensure_ascii=False))
-        return 0
+        }
 
     # result 必须能无损序列化 —— 复用集成层的同一个规整器
     try:
@@ -465,10 +474,265 @@ def _runner() -> int:
                       "note": f"result 超过 {MAX_RESULT_BYTES} 字节已截断，请只把结论赋给 result。"}
         truncated = True
 
-    sys.stdout.write(json.dumps({"ok": True, "logs": logs, "result": result_val,
-                                 "truncated": truncated, "warnings": warnings},
-                                ensure_ascii=False, default=str))
+    return {"ok": True, "logs": logs, "result": result_val,
+            "truncated": truncated, "warnings": warnings}
+
+
+def _runner() -> int:
+    """
+    一次性子进程入口（``--runner``）：从 stdin 读 {code, session_id}，
+    调用共用执行核心 ``execute_in_namespace``，把 **一行 JSON** 写到 stdout。
+
+    纪律：stdout 只允许出现这一行 JSON（沙箱内的 print 被重定向到 logs 列表），
+    否则父进程无法区分「代码的输出」与「协议的返回」。
+    """
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except Exception as exc:  # noqa: BLE001
+        sys.stdout.write(json.dumps({"ok": False, "message": f"入参解析失败：{exc}"}))
+        return 1
+
+    code = payload.get("code") or ""
+    session_id = payload.get("session_id")
+    out = execute_in_namespace(code, session_id)
+    sys.stdout.write(json.dumps(out, ensure_ascii=False, default=str))
     return 0
+
+
+# =============================================================================
+# 一次性子进程执行 + 治理层（Phase 2：配额 / 常驻沙箱 / Phase 3：熔断接入）
+# =============================================================================
+
+def _run_oneshot(code: str, session_id: Optional[str], timeout_s: float) -> Dict[str, Any]:
+    """
+    一次性子进程执行（旧行为 / 常驻 worker 不可用时的安全回退路径）。
+
+    返回 ``inner`` dict；传输层失败抛 ``SandboxTimeout`` / ``CompToolError``。
+    """
+    timeout = max(1.0, min(float(timeout_s or DEFAULT_TIMEOUT_S), MAX_TIMEOUT_S))
+    payload = json.dumps({"code": code, "session_id": session_id}, ensure_ascii=False)
+    env = {k: v for k, v in os.environ.items()
+           if not any(tok in k.upper() for tok in ("KEY", "TOKEN", "SECRET", "PASSWORD"))}
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONPATH"] = PROJECT_ROOT
+    env["COMP_SANDBOX"] = "1"
+    try:
+        proc = subprocess.run(
+            [sys.executable, os.path.abspath(__file__), "--runner"],
+            input=payload.encode("utf-8"),
+            capture_output=True, timeout=timeout,
+            cwd=PROJECT_ROOT, env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SandboxTimeout(
+            f"代码执行超过 {timeout:.0f} 秒已被终止。",
+            details={"timeout_s": timeout},
+        ) from exc
+
+    raw_out = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
+    if proc.returncode != 0 and not raw_out:
+        # 子进程直接崩了（段错误 / os._exit）—— 进程隔离在这里体现价值：
+        # 主 worker 与会话状态毫发无伤
+        stderr_tail = (proc.stderr or b"").decode("utf-8", errors="replace")[-1200:]
+        raise CompToolError(
+            f"沙箱子进程异常退出（exit_code={proc.returncode}）。",
+            hint="请简化代码后重试；若持续失败，改用薪酬工具直接获取结果。",
+            details={"exit_code": proc.returncode, "stderr_tail": stderr_tail},
+        )
+    try:
+        inner = json.loads(raw_out.splitlines()[-1]) if raw_out else {}
+    except Exception as exc:  # noqa: BLE001
+        raise CompToolError(
+            f"沙箱返回内容无法解析：{exc}",
+            hint="这通常意味着代码往 stdout 打了非 JSON 内容；请只用 print() 输出结论。",
+            details={"stdout_tail": raw_out[-800:]},
+        ) from exc
+    return inner
+
+
+class _SandboxGovernor:
+    """
+    沙箱治理器（Phase 2）：全局并发信号量 + 每会话滑动窗口配额。
+
+    杜绝失控循环反复 spawn 子进程耗尽本机 CPU/内存
+    —— 这是"token-draining 攻击"的**本地等价物**（架构 §3 P0）。
+    """
+
+    def __init__(self, max_concurrent: int = 2, max_calls: int = 50,
+                 window_s: int = 60) -> None:
+        self._sem = threading.Semaphore(max(1, int(max_concurrent)))
+        self._lock = threading.Lock()
+        self._calls: Dict[str, List[float]] = {}
+        self.max_concurrent = max(1, int(max_concurrent))
+        self.max_calls = max(1, int(max_calls))
+        self.window_s = max(1, int(window_s))
+
+    def acquire(self, session_id: Optional[str]) -> None:
+        """获取执行许可；超限抛 SandboxQuotaExceeded（由 tool_guard 转错误信封）。"""
+        if not self._sem.acquire(blocking=False):
+            raise SandboxQuotaExceeded(
+                f"沙箱并发已达上限（{self.max_concurrent}），请等待其他任务完成。",
+                hint="模型不应并行发起大量沙箱调用；请串行执行分析。")
+        try:
+            self._check_quota(session_id)
+        except Exception:
+            self._sem.release()
+            raise
+
+    def release(self) -> None:
+        try:
+            self._sem.release()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _check_quota(self, session_id: Optional[str]) -> None:
+        sid = session_id or "default"
+        now = time.time()
+        with self._lock:
+            ts = self._calls.setdefault(sid, [])
+            cutoff = now - self.window_s
+            self._calls[sid] = [t for t in ts if t >= cutoff]
+            if len(self._calls[sid]) >= self.max_calls:
+                raise SandboxQuotaExceeded(
+                    f"会话 {sid} 在 {self.window_s}s 内沙箱调用已达 {self.max_calls} 次上限。",
+                    hint="请合并多次分析为单次代码执行；沙箱调用受配额保护，"
+                         "避免失控循环耗尽本机资源。",
+                    details={"session_id": sid, "max_calls": self.max_calls,
+                             "window_s": self.window_s})
+            self._calls[sid].append(now)
+
+
+_WORKER_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "sandbox_worker.py")
+
+
+class _ResidentSandbox:
+    """
+    常驻沙箱子进程控制器（Phase 2）。
+
+    懒启动一个长期驻留的 worker 进程，复用解释器（pandas 只 import 一次），
+    之后每个请求只在全新 namespace 里 exec，冷启从 2–3s 降到 ms 级（架构 §4.4）。
+    进程死亡自动重启（受 30s 窗口重启上限保护，防死循环）；
+    任何传输失败对调用方返回 ``None``，由 ``run_comp_code`` 决定熔断 / 回退。
+    """
+
+    def __init__(self, max_restarts_per_30s: int = 3) -> None:
+        self._proc = None
+        self._lock = threading.Lock()
+        self._restarts: List[float] = []
+        self._max_restarts = max_restarts_per_30s
+
+    def _spawn(self) -> None:
+        env = {k: v for k, v in os.environ.items()
+               if not any(tok in k.upper()
+                          for tok in ("KEY", "TOKEN", "SECRET", "PASSWORD"))}
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONPATH"] = PROJECT_ROOT
+        env["COMP_SANDBOX"] = "1"
+        self._proc = subprocess.Popen(
+            [sys.executable, _WORKER_SCRIPT, "--resident"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, cwd=PROJECT_ROOT, env=env,
+        )
+
+    def _kill(self) -> None:
+        try:
+            if self._proc is not None:
+                self._proc.kill()
+                self._proc.wait(timeout=2)
+        except Exception:  # noqa: BLE001
+            pass
+        self._proc = None
+
+    def _ensure_alive(self) -> bool:
+        if self._proc is not None and self._proc.poll() is None:
+            return True
+        self._proc = None
+        now = time.time()
+        self._restarts = [t for t in self._restarts if now - t < 30]
+        if len(self._restarts) >= self._max_restarts:
+            return False
+        try:
+            self._spawn()
+            self._restarts.append(time.time())
+            return self._proc is not None
+        except Exception:  # noqa: BLE001
+            return False
+
+    def execute(self, code: str, session_id: Optional[str],
+                timeout_s: float) -> Optional[Dict[str, Any]]:
+        """
+        发送一次请求并返回响应 dict；传输失败（含超时 / 进程死亡）返回 ``None``。
+        """
+        with self._lock:
+            if not self._ensure_alive():
+                return None
+            if self._proc is None or self._proc.stdin is None:
+                self._kill()
+                return None
+            req = (json.dumps({"code": code, "session_id": session_id},
+                              ensure_ascii=False) + "\n").encode("utf-8")
+            try:
+                self._proc.stdin.write(req)
+                self._proc.stdin.flush()
+            except Exception:  # noqa: BLE001
+                self._kill()
+                return None
+
+            # 带超时读取响应（防用户代码死循环把 worker 卡死）
+            bucket: List[bytes] = [b""]
+
+            def _read() -> None:
+                try:
+                    if self._proc is None or self._proc.stdout is None:
+                        bucket[0] = b""
+                        return
+                    bucket[0] = self._proc.stdout.readline()
+                except Exception:  # noqa: BLE001
+                    bucket[0] = b""
+
+            th = threading.Thread(target=_read, daemon=True)
+            th.start()
+            th.join(timeout=float(timeout_s or DEFAULT_TIMEOUT_S))
+            if th.is_alive():
+                self._kill()          # 超时：杀掉卡死的 worker，强制重启
+                return None
+            line = bucket[0]
+            if not line:
+                self._kill()          # EOF / 进程已死
+                return None
+            try:
+                return json.loads(line.decode("utf-8", errors="replace"))
+            except Exception:  # noqa: BLE001
+                return None
+
+
+def _resident_enabled() -> bool:
+    """常驻沙箱是否启用：env 优先（COMP_SANDBOX_ONESHOT=1 强制一次性），否则读 config。"""
+    if os.environ.get("COMP_SANDBOX_ONESHOT"):
+        return False
+    try:
+        from .config_access import get as cfg_get
+        return bool(cfg_get("sandbox.resident", True))
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def _build_governor() -> _SandboxGovernor:
+    try:
+        from .config_access import get as cfg_get
+        return _SandboxGovernor(
+            max_concurrent=int(cfg_get("sandbox.max_concurrent", 2)),
+            max_calls=int(cfg_get("sandbox.quota.max_calls", 50)),
+            window_s=int(cfg_get("sandbox.quota.window_s", 60)),
+        )
+    except Exception:  # noqa: BLE001
+        return _SandboxGovernor()
+
+
+# 进程内单例：standalone CLI 与 dsh stdio worker 共用
+_GOVERNOR = _build_governor()
+_RESIDENT = _ResidentSandbox()
 
 
 TOOL_META = {

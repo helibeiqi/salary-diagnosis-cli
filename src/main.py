@@ -137,7 +137,8 @@ def cmd_schema(name: str) -> int:
     return 0
 
 
-def cmd_call(name: str, args_json: Optional[str], as_json: bool) -> int:
+def cmd_call(name: str, args_json: Optional[str], as_json: bool,
+             i_know_real_data: bool = False) -> int:
     try:
         arguments = json.loads(args_json) if args_json else {}
     except json.JSONDecodeError as exc:
@@ -146,6 +147,9 @@ def cmd_call(name: str, args_json: Optional[str], as_json: bool) -> int:
     if not isinstance(arguments, dict):
         print("--args 必须是 JSON 对象。")
         return 2
+    # 真实数据确认开关透传（仅对 generate_report 生效）
+    if i_know_real_data and name == "generate_report":
+        arguments = {**arguments, "i_know_real_data": True}
     env = registry.call_tool(name, arguments)
     _print_envelope(env, as_json)
     return 0 if env.get("ok") else 1
@@ -331,7 +335,8 @@ def _resolve_required_params(strategy, job_model, budget_pct):
 
 def cmd_pipeline(file_path: str, budget_pct, as_json: bool,
                  stop_on_error: bool = False, strategy=None, job_model=None,
-                 auto_confirm: bool = False, mapping_file: Optional[str] = None) -> int:
+                 auto_confirm: bool = False, mapping_file: Optional[str] = None,
+                 i_know_real_data: bool = False) -> int:
     """
     按 stage 顺序跑完整条诊断链，模拟模型的理想调用序列。
 
@@ -424,7 +429,8 @@ def cmd_pipeline(file_path: str, budget_pct, as_json: bool,
                                "strategy": strategy}),
         ("simulate_pay_mix", sid),
         ("calc_job_score", {**sid, "model": job_model}),
-        ("generate_report", {**sid, "formats": ["md", "html"]}),
+        ("generate_report", {**sid, "formats": ["md", "html"],
+                              "i_know_real_data": i_know_real_data}),
     ]
     for name, arguments in plan:
         env = run(name, arguments)
@@ -486,6 +492,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="--pipeline 指定人工确认的映射文件（JSON/YAML：{原始列名: 标准字段}）")
     ap.add_argument("--json", action="store_true", help="输出原始 JSON（机读）")
     ap.add_argument("--strict", action="store_true", help="--pipeline 任一步失败即终止")
+    ap.add_argument("--i-know-this-is-real-data", action="store_true",
+                    help="真实薪酬数据确认：生成 HTML 报告时抑制 data_guard.md 安全提示"
+                         "（仅限本机本地使用，代表操作者已知晓数据敏感性）")
     args = ap.parse_args(argv)
 
     if args.serve:

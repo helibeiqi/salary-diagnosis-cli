@@ -184,6 +184,9 @@ def _adapt_desensitize(args: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]
             )
         out["file_path"] = src
         warns.append(f"file_path 未给出，已按会话 {sid} 的来源文件回填：{src}")
+    # R3：把 session_id 透传给 desensitize，使其能写入 data_classification 标记
+    if sid:
+        out["session_id"] = sid
     return out, warns
 
 
@@ -509,6 +512,9 @@ TOOL_SPECS: Tuple[ToolSpec, ...] = (
                                  "description": "只生成指定章节（中文标题/子串或 '1'-'7' 序号）；缺省全部 7 章"},
             "formats": {"type": "array", "items": {"type": "string", "enum": ["md", "html"]},
                         "description": "输出格式，缺省 ['md','html']"},
+            "i_know_real_data": {"type": "boolean",
+                                 "description": "真实薪酬数据确认开关：未确认且确为真实数据时，"
+                                                "生成 HTML 会额外写出 data_guard.md 安全提示"},
         },
     ),
     ToolSpec(
@@ -997,6 +1003,45 @@ def _prepare_kwargs(spec: ToolSpec, fn: Callable[..., Any],
     return args, warns
 
 
+def _resolve_classification(sid: Optional[str]) -> str:
+    """
+    解析会话数据分级（供遥测使用），**只读 meta、绝不失败**。
+    返回 'sanitized' / 'real' / 'unknown' / 'none'。
+    """
+    if not sid:
+        return "none"
+    try:
+        from .session import get_store
+        meta = get_store().get_meta(str(sid))
+        dc = (meta or {}).get("data_classification")
+        if dc in ("sanitized", "real"):
+            return dc
+        return "unknown"
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def _emit_telemetry(name: str, result: Dict[str, Any],
+                    sid: Optional[str], elapsed_ms: int) -> None:
+    """
+    遥测发射（Phase 0）。零 PII、失败静默、完全不影响主调用。
+    只在 call_tool 成功返回前被调用一次。
+    """
+    try:
+        from . import telemetry
+        ok = bool(result.get("ok"))
+        code = "ok" if ok else (result.get("error") or {}).get("code", "error")
+        telemetry.emit({
+            "tool": name,
+            "ok": ok,
+            "code": code,
+            "elapsed_ms": elapsed_ms,
+            "session_classification": _resolve_classification(sid),
+        })
+    except Exception:  # noqa: BLE001 - 遥测绝不拖垮主调用
+        pass
+
+
 def call_tool(name: str, arguments: Optional[Dict[str, Any]] = None, *,
               session_id: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -1006,59 +1051,63 @@ def call_tool(name: str, arguments: Optional[Dict[str, Any]] = None, *,
     """
     started = time.perf_counter()
     arguments = dict(arguments or {})
+    # session_id 三级回退（架构 §5.3）：显式传参 > 宿主会话 id > 'default'
+    sid = arguments.get("session_id") or session_id
+
     spec = TOOLS_BY_NAME.get(name)
     if spec is None:
-        return error_envelope(
+        result = error_envelope(
             "UNKNOWN_TOOL", f"没有名为 {name!r} 的工具。",
             detail=f"可用工具：{', '.join(TOOL_NAMES)}",
             meta={"tool": name, "contract_version": CONTRACT_VERSION},
         )
+    else:
+        if sid and "session_id" in spec.parameters:
+            arguments["session_id"] = sid
+        try:
+            fn = resolve_handler(spec)
+            kwargs, warns = _prepare_kwargs(spec, fn, arguments)
+            raw = fn(**kwargs)
+        except CompToolError as exc:
+            elapsed = int((time.perf_counter() - started) * 1000)
+            code = CODE_ALIASES.get(exc.code, exc.code)
+            env = error_envelope(code, exc.message, hint=exc.hint,
+                                 meta={"tool": name, "session_id": sid,
+                                       "elapsed_ms": elapsed,
+                                       "contract_version": CONTRACT_VERSION})
+            if exc.details:
+                env["data"] = {"error_details": to_lossless(exc.details)}
+            env["data"]["summary_md"] = (
+                f"### {spec.title} 执行失败\n\n- **错误码**：`{code}`\n"
+                f"- **原因**：{exc.message}\n- **下一步**：{exc.hint}\n"
+            )
+            result = env
+        except TypeError as exc:
+            # 参数过滤后仍然 TypeError → 多半是缺必填参数，属于模型可自行纠正的情况
+            elapsed = int((time.perf_counter() - started) * 1000)
+            result = error_envelope(
+                "INVALID_PARAMS", f"调用 {name} 的参数不合法：{exc}",
+                detail=f"该工具的参数定义见 tools/list 的 input_schema。",
+                meta={"tool": name, "session_id": sid, "elapsed_ms": elapsed,
+                      "contract_version": CONTRACT_VERSION},
+            )
+        except Exception as exc:  # noqa: BLE001 - 集成层必须兜住一切
+            elapsed = int((time.perf_counter() - started) * 1000)
+            result = error_envelope(
+                "INTERNAL_ERROR",
+                f"{name} 执行时发生未预期错误：{type(exc).__name__}: {exc}",
+                detail=f"{type(exc).__name__}: {exc}",
+                meta={"tool": name, "session_id": sid, "elapsed_ms": elapsed,
+                      "contract_version": CONTRACT_VERSION},
+            )
+        else:
+            elapsed = int((time.perf_counter() - started) * 1000)
+            result = normalize_result(name, raw, session_id=sid, elapsed_ms=elapsed,
+                                      extra_warnings=warns)
 
-    # session_id 三级回退（架构 §5.3）：显式传参 > 宿主会话 id > 'default'
-    sid = arguments.get("session_id") or session_id
-    if sid and "session_id" in spec.parameters:
-        arguments["session_id"] = sid
-
-    try:
-        fn = resolve_handler(spec)
-        kwargs, warns = _prepare_kwargs(spec, fn, arguments)
-        raw = fn(**kwargs)
-    except CompToolError as exc:
-        elapsed = int((time.perf_counter() - started) * 1000)
-        code = CODE_ALIASES.get(exc.code, exc.code)
-        env = error_envelope(code, exc.message, hint=exc.hint,
-                             meta={"tool": name, "session_id": sid,
-                                   "elapsed_ms": elapsed,
-                                   "contract_version": CONTRACT_VERSION})
-        if exc.details:
-            env["data"] = {"error_details": to_lossless(exc.details)}
-        env["data"]["summary_md"] = (
-            f"### {spec.title} 执行失败\n\n- **错误码**：`{code}`\n"
-            f"- **原因**：{exc.message}\n- **下一步**：{exc.hint}\n"
-        )
-        return env
-    except TypeError as exc:
-        # 参数过滤后仍然 TypeError → 多半是缺必填参数，属于模型可自行纠正的情况
-        elapsed = int((time.perf_counter() - started) * 1000)
-        return error_envelope(
-            "INVALID_PARAMS", f"调用 {name} 的参数不合法：{exc}",
-            detail=f"该工具的参数定义见 tools/list 的 input_schema。",
-            meta={"tool": name, "session_id": sid, "elapsed_ms": elapsed,
-                  "contract_version": CONTRACT_VERSION},
-        )
-    except Exception as exc:  # noqa: BLE001 - 集成层必须兜住一切
-        elapsed = int((time.perf_counter() - started) * 1000)
-        return error_envelope(
-            "INTERNAL_ERROR",
-            f"{name} 执行时发生未预期错误：{type(exc).__name__}: {exc}",
-            detail=f"{type(exc).__name__}: {exc}",
-            meta={"tool": name, "session_id": sid, "elapsed_ms": elapsed,
-                  "contract_version": CONTRACT_VERSION},
-        )
-
-    elapsed = int((time.perf_counter() - started) * 1000)
-    return normalize_result(name, raw, session_id=sid, elapsed_ms=elapsed,
-                            extra_warnings=warns)
+    total_ms = int((time.perf_counter() - started) * 1000)
+    _emit_telemetry(name, result, sid, total_ms)
+    return result
 
 
 def tool_names() -> List[str]:
