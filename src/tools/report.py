@@ -635,6 +635,7 @@ def _s1_exec_summary(ctx: _ReportCtx) -> List[str]:
     circles = _get(cur, "circles", default={}) or {}
     red = _get(circles, "red", default={}) or {}
     green = _get(circles, "green", default={}) or {}
+    unknown = _get(circles, "unknown", default={}) or {}
     ms = _get(mkt, "summary", default={}) or {}
 
     if not cur:
@@ -650,6 +651,7 @@ def _s1_exec_summary(ctx: _ReportCtx) -> List[str]:
     cr_std = _num(_get(cs, "cr_std", "std_cr"))
     n_red, n_green = _num(_get(red, "count", "red_count")), _num(_get(green, "count", "green_count"))
     p_red, p_green = _num(_get(red, "pct", "red_pct")), _num(_get(green, "pct", "green_pct"))
+    n_unknown, p_unknown = _num(_get(unknown, "count", "unknown_count")), _num(_get(unknown, "pct"))
     cost_red = _num(_get(red, "annual_cost", "cost"))
     cost_green = _num(_get(green, "annual_cost", "cost"))
     gap = _num(_get(ms, "overall_gap_p50_pct", "overall_gap_pct", "gap_pct"))
@@ -679,6 +681,8 @@ def _s1_exec_summary(ctx: _ReportCtx) -> List[str]:
          f"CR > {RED_CIRCLE_CR:.2f}，薪酬高于带宽，成本溢出"],
         ["绿圈人数", f"{_int(n_green)} 人（{_pct(p_green)}）" if n_green is not None else "—",
          f"CR < {GREEN_CIRCLE_CR:.2f}，薪酬低于带宽，流失风险"],
+        ["未识别人数", f"{_int(n_unknown)} 人（{_pct(p_unknown)}）" if n_unknown else "—",
+         "职级无法识别(UNKNOWN)：已计入人数/成本基数，但不参与带宽与 CR 诊断"],
         ["红圈年化溢出成本", _money(cost_red), "超出带宽上限部分的年化金额"],
         ["绿圈补差成本", _money(cost_green), "补到带宽下限所需的最小年化投入"],
         ["相对市场 P50 差距", _pct(gap, signed=True) if gap is not None else "—",
@@ -979,7 +983,8 @@ def _s3_current_state(ctx: _ReportCtx) -> List[str]:
     red = _get(circles, "red", default={}) or {}
     green = _get(circles, "green", default={}) or {}
     ok = _get(circles, "ok", "normal", default={}) or {}
-    if red or green:
+    unknown = _get(circles, "unknown", default={}) or {}
+    if red or green or unknown:
         L.append("### 3.3 红绿圈人数与成本")
         L.append("")
         rows = [
@@ -992,6 +997,12 @@ def _s3_current_state(ctx: _ReportCtx) -> List[str]:
             ["合理区间", _int(_get(ok, "count")), _pct(_get(ok, "pct")), "—",
              "薪酬落在带宽内，无需立即干预"],
         ]
+        if _get(unknown, "count"):
+            rows.append([
+                "⚪ 未识别（职级未知）", _int(_get(unknown, "count")),
+                _pct(_get(unknown, "pct")), "—",
+                "职级无法识别(UNKNOWN)：已计入人数/成本基数，但不参与带宽与 CR 诊断",
+            ])
         L += _table(["类别", "人数", "占比", "年化成本影响", "风险与建议"],
                     rows, ["l", "r", "r", "r", "l"])
         L.append("")

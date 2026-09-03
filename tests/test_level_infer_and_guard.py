@@ -67,7 +67,7 @@ def test_infer_level_from_title() -> None:
         ("人力资源经理", "M1"),
         ("财务总监", "M3"),
         ("销售副总裁", "M4"),
-        ("保洁员", None),           # 无关键词 → None
+        ("保洁员", "O2"),           # 辅助岗 → O2（Plan C·B 扩展词表）
         ("P3", "P3"),               # 已是 level 写法 → 归一
         ("m2", "M2"),               # 小写 level 写法
         (None, None),
@@ -89,7 +89,7 @@ def test_infer_levels_coverage() -> None:
     df = pd.DataFrame({
         "job_title": [
             "初级工程师", "高级软件工程师", "资深技术专家", "生产主管",
-            "人力资源经理", "财务总监", "实习生", "行政助理", "保洁员",
+            "人力资源经理", "财务总监", "实习生", "行政助理", "外包人员",
         ],
     })
     out, rep = infer_levels(df, title_col="job_title")
@@ -98,9 +98,14 @@ def test_infer_levels_coverage() -> None:
     check("total == 9", rep["total"] == 9, str(rep["total"]))
     check("coverage ~ 0.889", rep["coverage"] == round(8 / 9, 4), str(rep["coverage"]))
     check("unresolved == 1", rep["unresolved"] == 1, str(rep["unresolved"]))
-    check("unresolved_samples 含 '保洁员'",
-          any("保洁员" in str(s) for s in rep["unresolved_samples"]),
+    check("unresolved_samples 含 '外包人员'",
+          any("外包人员" in str(s) for s in rep["unresolved_samples"]),
           str(rep["unresolved_samples"]))
+    # Plan C·A：未识别职位标为 UNKNOWN 单列保留，而非置 NaN/被删行
+    check("未识别职位 level == 'UNKNOWN'（不丢行）",
+          out["level"].iloc[8] == "UNKNOWN", str(out["level"].iloc[8]))
+    check("level 列无 NaN", out["level"].isna().sum() == 0,
+          str(out["level"].isna().sum()))
 
     # 已有 level 列且不空 → 不覆盖
     df2 = pd.DataFrame({"job_title": ["工程师"], "level": ["P9"]})

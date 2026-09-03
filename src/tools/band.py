@@ -635,6 +635,11 @@ def classify_cr(df: pd.DataFrame,
     out = df.copy()
     out[level_field] = out[level_field].astype(str).str.strip().str.upper()
 
+    # 未识别职级（Plan C·A）：无法计算 Compa-Ratio，标记后排除出 CR/红绿圈诊断，
+    # 但保留在人数/成本基数中（由报告透明单列「未识别」）。
+    is_unknown = out[level_field].astype(str).str.upper().eq("UNKNOWN")
+    n_unknown = int(is_unknown.sum())
+
     # ---- 关联带宽 ------------------------------------------------------------
     if band is None:
         require_columns(out, ["band_min", "band_mid", "band_max"], tool_name="classify_cr")
@@ -655,7 +660,7 @@ def classify_cr(df: pd.DataFrame,
             lambda lv: float(bmap[lv]["band_mid"]) if lv in bmap else np.nan)
         out["band_max"] = out[level_field].map(
             lambda lv: float(bmap[lv]["band_max"]) if lv in bmap else np.nan)
-        n_unmatched = int(out["band_mid"].isna().sum())
+        n_unmatched = int((out["band_mid"].isna() & ~is_unknown).sum())
         if n_unmatched:
             raise UpstreamMissing(
                 f"有 {n_unmatched} 人的职级在带宽表里找不到对应行，无法计算 CR",
@@ -697,6 +702,14 @@ def classify_cr(df: pd.DataFrame,
     reason[is_green.fillna(False) & (out["cr"] < green_cr)] = f"CR<{green_cr}"
     reason[is_green.fillna(False) & below_min.fillna(False)] += " 薪资低于下限"
     out["flag_reason"] = reason.replace("", "在合理区间内")
+
+    # ---- UNKNOWN 职级：不参与 CR / 红绿圈诊断（Plan C·A）----------------------
+    if n_unknown:
+        out.loc[is_unknown, ["band_min", "band_mid", "band_max"]] = np.nan
+        out.loc[is_unknown, "cr"] = np.nan
+        out.loc[is_unknown, "penetration"] = np.nan
+        out.loc[is_unknown, "flag"] = "未识别"
+        out.loc[is_unknown, "flag_reason"] = "职级未识别(UNKNOWN)，不参与带宽/CR诊断"
 
     return out
 
@@ -985,8 +998,11 @@ def generate_band(session_id: str,
     require_columns(df, ["level", "monthly_salary"], tool_name="generate_band")
 
     # ---- 2) 确定职级序列（按 P1<P2<...<M1<M2<M3 排序）-------------------------
+    # 未识别职级（UNKNOWN）不纳入带宽设计：它没有可解析的带宽，且会被 classify_cr
+    # 排除出 CR 诊断；其人数/成本仍计入基数，并在报告中单列「未识别」。
+    n_unknown = int((df["level"].astype(str).str.strip().str.upper() == "UNKNOWN").sum())
     if levels:
-        lv_list = [str(x).strip().upper() for x in levels]
+        lv_list = [str(x).strip().upper() for x in levels if str(x).strip().upper() != "UNKNOWN"]
         unknown = [lv for lv in lv_list if lv not in set(df["level"].astype(str))]
         if unknown:
             raise InvalidParameter(
@@ -995,12 +1011,13 @@ def generate_band(session_id: str,
                 details={"unknown_levels": unknown},
             )
     else:
-        lv_list = sorted(df["level"].astype(str).str.strip().str.upper().unique(),
-                         key=level_sort_key)
+        lv_list = [lv for lv in sorted(
+            df["level"].astype(str).str.strip().str.upper().unique(),
+            key=level_sort_key) if lv != "UNKNOWN"]
     if not lv_list:
         raise CompToolError(
-            "数据中没有任何职级，无法生成带宽",
-            hint="请确认 level 列已映射且非空。",
+            "数据中没有任何可识别职级，无法生成带宽",
+            hint="所有职级均为 UNKNOWN（职级未识别）。请补全 level 列或 job_title 列后重跑。",
         )
 
     diff = DEFAULT_MIDPOINT_DIFF if midpoint_diff is None else float(midpoint_diff)
@@ -1014,6 +1031,11 @@ def generate_band(session_id: str,
     # ---- 3) 解析原始中位值 ----------------------------------------------------
     base_mids, notes = _resolve_base_midpoints(df, lv_list, midpoint_source,
                                                midpoint_custom, diff)
+    if n_unknown:
+        notes.append(
+            f"有 {n_unknown} 人职级为 UNKNOWN（无法识别），未纳入带宽设计（不参与重叠度诊断）；"
+            "其 CR 在 analyze_current_state 中单列「未识别」，但已计入人数与成本基数。"
+        )
     stats = _level_stats(df)
     weights = {lv: float(stats.get(lv, {}).get("n", 1)) for lv in lv_list}
 

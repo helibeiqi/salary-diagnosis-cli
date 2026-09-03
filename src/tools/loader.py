@@ -875,13 +875,27 @@ def clean_dataframe(df: pd.DataFrame, mapping: Optional[Dict[str, str]] = None
     #  口径：level（分组主键）与 monthly_salary（计算分子）缺失的行无法参与诊断，
     #  必须剔除；但 emp_id 缺失不剔除（见第 1 步，已合成）。
     if "level" in out.columns:
+        # 修订口径（Plan C·A）：level 缺失/无法识别**不再整行剔除**（那会系统性低估
+        # 人数与成本基数，实测发放表开箱只用上 4/9），而是标为 UNKNOWN 单列保留：
+        # 纳入人数与成本基数，但被 generate_band / classify_cr 排除出带宽重叠与 CR 诊断，
+        # 报告透明单列「未识别」。
         miss_level = out["level"].isna()
         n = int(miss_level.sum())
         if n:
-            out = out.loc[~miss_level].copy()
-            report["dropped"]["missing_level"] = n
+            out.loc[miss_level, "level"] = "UNKNOWN"
+            report["dropped"]["unknown_level_filled"] = n
+            report["notes"].append(
+                f"有 {n} 行职级缺失或无法识别，已标为 UNKNOWN 并保留在人数与成本基数中；"
+                "UNKNOWN 不参与带宽重叠与 CR 诊断，详见报告「未识别人员」章节。"
+            )
     else:
-        report["notes"].append("数据中缺少职级列，所有按职级的分析（带宽/CR）将无法进行。")
+        # 连 level 列都没有（既无 level 也无 job_title 可推断）→ 整体标 UNKNOWN 保留
+        out["level"] = "UNKNOWN"
+        report["dropped"]["unknown_level_filled"] = int(len(out))
+        report["notes"].append(
+            "数据中缺少职级列且无 job_title 可推断，已统一标为 UNKNOWN 保留在基数中；"
+            "这些人员不参与带宽重叠与 CR 诊断，详见报告「未识别人员」章节。"
+        )
 
     if "monthly_salary" in out.columns:
         miss_sal = out["monthly_salary"].isna()
