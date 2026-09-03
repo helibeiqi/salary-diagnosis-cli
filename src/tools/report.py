@@ -100,15 +100,6 @@ except Exception:  # noqa: BLE001
                 },
             }
 
-# 语义化摘要（summary_md）由 _summary.py 集中生成，导入失败则交由 registry 兜底。
-try:  # pragma: no cover
-    from tools._summary import build_report_summary_md  # type: ignore
-except Exception:  # noqa: BLE001
-    try:
-        from ._summary import build_report_summary_md  # type: ignore
-    except Exception:  # noqa: BLE001
-        build_report_summary_md = None  # type: ignore
-
 # 业务常量从 schemas.py 取（单一真理源），导入失败用同值兜底
 try:  # pragma: no cover
     from tools.schemas import (  # type: ignore
@@ -644,7 +635,6 @@ def _s1_exec_summary(ctx: _ReportCtx) -> List[str]:
     circles = _get(cur, "circles", default={}) or {}
     red = _get(circles, "red", default={}) or {}
     green = _get(circles, "green", default={}) or {}
-    unknown = _get(circles, "unknown", default={}) or {}
     ms = _get(mkt, "summary", default={}) or {}
 
     if not cur:
@@ -660,7 +650,6 @@ def _s1_exec_summary(ctx: _ReportCtx) -> List[str]:
     cr_std = _num(_get(cs, "cr_std", "std_cr"))
     n_red, n_green = _num(_get(red, "count", "red_count")), _num(_get(green, "count", "green_count"))
     p_red, p_green = _num(_get(red, "pct", "red_pct")), _num(_get(green, "pct", "green_pct"))
-    n_unknown, p_unknown = _num(_get(unknown, "count", "unknown_count")), _num(_get(unknown, "pct"))
     cost_red = _num(_get(red, "annual_cost", "cost"))
     cost_green = _num(_get(green, "annual_cost", "cost"))
     gap = _num(_get(ms, "overall_gap_p50_pct", "overall_gap_pct", "gap_pct"))
@@ -690,8 +679,6 @@ def _s1_exec_summary(ctx: _ReportCtx) -> List[str]:
          f"CR > {RED_CIRCLE_CR:.2f}，薪酬高于带宽，成本溢出"],
         ["绿圈人数", f"{_int(n_green)} 人（{_pct(p_green)}）" if n_green is not None else "—",
          f"CR < {GREEN_CIRCLE_CR:.2f}，薪酬低于带宽，流失风险"],
-        ["未识别人数", f"{_int(n_unknown)} 人（{_pct(p_unknown)}）" if n_unknown else "—",
-         "职级无法识别(UNKNOWN)：已计入人数/成本基数，但不参与带宽与 CR 诊断"],
         ["红圈年化溢出成本", _money(cost_red), "超出带宽上限部分的年化金额"],
         ["绿圈补差成本", _money(cost_green), "补到带宽下限所需的最小年化投入"],
         ["相对市场 P50 差距", _pct(gap, signed=True) if gap is not None else "—",
@@ -992,8 +979,7 @@ def _s3_current_state(ctx: _ReportCtx) -> List[str]:
     red = _get(circles, "red", default={}) or {}
     green = _get(circles, "green", default={}) or {}
     ok = _get(circles, "ok", "normal", default={}) or {}
-    unknown = _get(circles, "unknown", default={}) or {}
-    if red or green or unknown:
+    if red or green:
         L.append("### 3.3 红绿圈人数与成本")
         L.append("")
         rows = [
@@ -1006,12 +992,6 @@ def _s3_current_state(ctx: _ReportCtx) -> List[str]:
             ["合理区间", _int(_get(ok, "count")), _pct(_get(ok, "pct")), "—",
              "薪酬落在带宽内，无需立即干预"],
         ]
-        if _get(unknown, "count"):
-            rows.append([
-                "⚪ 未识别（职级未知）", _int(_get(unknown, "count")),
-                _pct(_get(unknown, "pct")), "—",
-                "职级无法识别(UNKNOWN)：已计入人数/成本基数，但不参与带宽与 CR 诊断",
-            ])
         L += _table(["类别", "人数", "占比", "年化成本影响", "风险与建议"],
                     rows, ["l", "r", "r", "r", "l"])
         L.append("")
@@ -1634,9 +1614,6 @@ hr{border:0; border-top:1px solid var(--line); margin:32px 0;}
 .watermark-banner{background:#C62828; color:#fff; font-weight:700; font-size:14px;
        text-align:center; padding:11px 16px; border-radius:6px; margin:0 0 22px;
        letter-spacing:.3px; box-shadow:0 1px 6px rgba(198,40,40,.35);}
-.watermark-banner-synthetic{background:#37474F; color:#ECEFF1; font-weight:600;
-       font-size:13.5px; text-align:center; padding:10px 16px; border-radius:6px;
-       margin:0 0 22px; letter-spacing:.3px; box-shadow:0 1px 6px rgba(55,71,79,.30);}
 .footer{margin-top:48px; padding-top:18px; border-top:1px solid var(--line);
         color:var(--sub); font-size:12.5px; text-align:center;}
 @media print{body{background:#fff;} .page{box-shadow:none; padding:0;} h2{page-break-after:avoid;}}
@@ -1699,12 +1676,8 @@ def _md_to_html(md: str, title: str, subtitle: str,
     plotly.js 只引入一次：从第一张图的 div 里抽出 CDN 地址放进 <head>，
     其余图的 script 标签用 strip_plotlyjs_cdn 剥掉 —— 否则 6 张图会重复加载 6 次 3MB。
 
-    classification : "real"（默认，含真实薪酬）| "sanitized"（已脱敏）| "synthetic"（模拟数据）。
-        决定页脚与顶部水印措辞——
-          - real      ：红色醒目水印「含真实薪酬数据 · 请勿外发」
-          - sanitized ：无横幅，页脚标注「数据已脱敏，可安全外发」
-          - synthetic ：中性蓝灰横幅「模拟数据，可安全演示」（随机合成，不含真实自然人），
-                        **绝不**使用红色真实数据措辞。
+    classification : "real"（默认，含真实薪酬）| "sanitized"（已脱敏）。
+        决定页脚与顶部水印措辞——**绝不再谎称"脱敏模拟数据"**。
     """
     body = md
     try:
@@ -1723,21 +1696,13 @@ def _md_to_html(md: str, title: str, subtitle: str,
             plotly_js = m.group(0)
             break
 
-    # —— 数据护栏（R2）：按数据分级渲染不同顶部横幅 + 页脚 ——
-    # real=红字真实数据警示；synthetic=中性蓝灰「模拟数据」横幅（可安全演示）；
-    # sanitized=无横幅、页脚标注已脱敏可外发。绝不把模拟数据伪装成真实/脱敏。
+    # —— 数据护栏（R2）：真实数据必须有醒目水印，不得伪称脱敏 ——
     if classification == "sanitized":
         banner = ""
         footer_text = ("本报告由「薪酬诊断 Agent（CCO Copilot）」自动生成 · "
                        "数值由 Python 确定性计算产出 · 数据已脱敏处理"
                        "（个体加盐哈希不可逆、薪资总额守恒），可安全外发")
-    elif classification == "synthetic":
-        banner = ('<div class="watermark-banner watermark-banner-synthetic">'
-                  '🧪 本报告为<b>模拟数据</b>演示 · 全部姓名/薪资均为随机合成，'
-                  '不含任何真实自然人 · 可安全对外演示</div>\n')
-        footer_text = ("本报告由「薪酬诊断 Agent（CCO Copilot）」自动生成 · "
-                       "数值由 Python 确定性计算产出 · 数据为随机合成的模拟数据，可安全演示")
-    else:  # real（含未识别）
+    else:
         banner = ('<div class="watermark-banner">⚠️ 本报告含真实薪酬数据 · '
                   '仅限本地查看 · 请勿外发或提交到公开仓库</div>\n')
         footer_text = ("⚠️ 含真实薪酬数据 · 仅限本地使用 · 请勿外发 · "
@@ -1763,23 +1728,20 @@ def _md_to_html(md: str, title: str, subtitle: str,
 
 def _detect_salary_classification(meta: Any) -> str:
     """
-    判断本报告数据分级（R2 水印依据），返回规范值："real" / "sanitized" / "synthetic"。
+    判断本报告数据是否已脱敏（R2 水印依据）。
 
     优先级：
-      1. session.meta["data_classification"] 显式标记（"sanitized" / "real" / "synthetic"）。
-         "simulated" 视为 "synthetic" 的别名（config.yaml 用 simulated，加载端已归一）。
+      1. session.meta["data_classification"] 显式标记（"sanitized" / "real"）。
       2. 兜底：数据源文件名为 `*_desensitized.csv` → 视为已脱敏
          （desensitize() 产物的典型命名）。
       3. 默认 "real"：CLI 绝大多数场景直接跑真实工资表，
-         宁可「多一道水印」也不要谎称脱敏/模拟。
+         宁可「多一道水印」也不要谎称脱敏。
     """
     if not isinstance(meta, dict):
         return "real"
-    dc = (meta.get("data_classification") or "").strip().lower()
+    dc = meta.get("data_classification")
     if dc in ("sanitized", "real"):
         return dc
-    if dc in ("synthetic", "simulated"):
-        return "synthetic"
     src = (meta.get("source_file")
            or (meta.get("mapping") or {}).get("source_file")
            or "")
@@ -1903,10 +1865,9 @@ def generate_report(
         ctx = _ReportCtx(resolved, sid, REPORT_DIR, report_title)
         ctx.warnings.extend(warns)
 
-        # ---- 数据护栏（R2）：判断数据分级，仅真实数据加醒目红字水印 + 护栏 ----
-        # synthetic（模拟数据）/ sanitized（已脱敏）均不触发真实数据护栏与 data_guard sidecar。
+        # ---- 数据护栏（R2）：判断数据是否已脱敏，真实数据加醒目水印 ----
         classification = _detect_salary_classification(getattr(resolved, "meta", None) or meta)
-        if classification == "real":
+        if classification != "sanitized":
             guard_msg = ("⚠️ 薪酬数据护栏：本报告含真实薪酬数值，仅限本地查看，"
                          "请勿外发或提交到公开仓库。如需外发，请先调用 desensitize() "
                          "生成脱敏副本。")
@@ -1925,7 +1886,7 @@ def generate_report(
             "---",
             "",
         ]
-        if classification == "real":
+        if classification != "sanitized":
             md_lines += [
                 "> ⚠️ **数据护栏**：本报告含真实薪酬数据，仅限本地查看，请勿外发。",
                 "",
@@ -1983,7 +1944,7 @@ def generate_report(
             subtitle = (f"生成时间：{now}　｜　会话 ID：{sid}　｜　"
                         f"共 {len(sections_done)} 章　｜　图表 {len(ctx.figures)} 张")
             # ---- R4：真实数据护栏 sidecar（仅在未确认且确为真实数据时写）----
-            if classification == "real" and not i_know_real_data:
+            if classification != "sanitized" and not i_know_real_data:
                 guard_path = os.path.join(REPORT_DIR, f"{report_title}_{ts}.data_guard.md")
                 _write_data_guard(guard_path, report_title, sid, now, report_path)
                 guard_msg = ("⚠️ 真实薪酬数据护栏：已生成 data_guard.md 安全提示文件"
@@ -2017,15 +1978,6 @@ def generate_report(
             generated_at=now,
             timestamp=ts,
             char_count=len(md_text),
-            # P9 修复（2026-09-04 续）：语义化摘要由代码生成；导入失败时 registry 兜底。
-            summary_md=build_report_summary_md({
-                "title": report_title,
-                "sections": sections_done,
-                "figure_count": len(ctx.figures),
-                "char_count": len(md_text),
-                "missing_sections": missing,
-                "broken_figures": [f["rel_path"] for f in broken],
-            }) if build_report_summary_md else None,
             fmt="both" if (want_md and want_html) else ("html" if want_html else "markdown"),
         )
 

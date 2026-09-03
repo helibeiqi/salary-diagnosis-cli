@@ -875,27 +875,13 @@ def clean_dataframe(df: pd.DataFrame, mapping: Optional[Dict[str, str]] = None
     #  口径：level（分组主键）与 monthly_salary（计算分子）缺失的行无法参与诊断，
     #  必须剔除；但 emp_id 缺失不剔除（见第 1 步，已合成）。
     if "level" in out.columns:
-        # 修订口径（Plan C·A）：level 缺失/无法识别**不再整行剔除**（那会系统性低估
-        # 人数与成本基数，实测发放表开箱只用上 4/9），而是标为 UNKNOWN 单列保留：
-        # 纳入人数与成本基数，但被 generate_band / classify_cr 排除出带宽重叠与 CR 诊断，
-        # 报告透明单列「未识别」。
         miss_level = out["level"].isna()
         n = int(miss_level.sum())
         if n:
-            out.loc[miss_level, "level"] = "UNKNOWN"
-            report["dropped"]["unknown_level_filled"] = n
-            report["notes"].append(
-                f"有 {n} 行职级缺失或无法识别，已标为 UNKNOWN 并保留在人数与成本基数中；"
-                "UNKNOWN 不参与带宽重叠与 CR 诊断，详见报告「未识别人员」章节。"
-            )
+            out = out.loc[~miss_level].copy()
+            report["dropped"]["missing_level"] = n
     else:
-        # 连 level 列都没有（既无 level 也无 job_title 可推断）→ 整体标 UNKNOWN 保留
-        out["level"] = "UNKNOWN"
-        report["dropped"]["unknown_level_filled"] = int(len(out))
-        report["notes"].append(
-            "数据中缺少职级列且无 job_title 可推断，已统一标为 UNKNOWN 保留在基数中；"
-            "这些人员不参与带宽重叠与 CR 诊断，详见报告「未识别人员」章节。"
-        )
+        report["notes"].append("数据中缺少职级列，所有按职级的分析（带宽/CR）将无法进行。")
 
     if "monthly_salary" in out.columns:
         miss_sal = out["monthly_salary"].isna()
@@ -928,44 +914,10 @@ def clean_dataframe(df: pd.DataFrame, mapping: Optional[Dict[str, str]] = None
 # 六、工具 1：load_salary_data
 # =============================================================================
 
-# 数据分级规范值（R2/R3 护栏依据）
-_DATA_CLASS_LEGAL = ("real", "sanitized", "synthetic")
-# 文件名关键字 → 分级 的兜底映射（synthetic 既含 sample/mock 也含 messy，
-# 因为 messy_salary.csv 同样是随机合成的演示数据，绝不可误标真实）
-_SYNTHETIC_NAME_HINTS = ("sample", "mock", "messy", "synthetic", "simulated", "demo")
-
-
-def _resolve_data_classification(file_path: str, explicit: Optional[str] = None) -> str:
-    """
-    解析数据分级（R2/R3 护栏依据），返回规范值之一："real" / "sanitized" / "synthetic"。
-
-    优先级
-    ------
-    1. 显式 ``data_classification`` 参数：合法值直接采纳；"simulated" 归一为 "synthetic"；
-       非法值（非 None 且不在白名单）回退到文件名兜底并记一条 note 由调用方决定。
-    2. 文件名兜底：以 ``_desensitized.csv`` 结尾 → "sanitized"；
-       含 sample/mock/messy/synthetic/simulated/demo 关键字 → "synthetic"。
-    3. fail-safe：以上都不命中 → "real"（宁可多一道水印，绝不谎称脱敏/模拟）。
-    """
-    raw = (explicit or "").strip().lower()
-    if raw in _DATA_CLASS_LEGAL:
-        return raw
-    if raw == "simulated":          # config.yaml 用 "simulated"，规范为 "synthetic"
-        return "synthetic"
-    if raw:                          # 显式给了但非法 → 不采纳，落到文件名兜底
-        pass
-    name = os.path.basename(file_path or "").lower()
-    if name.endswith("_desensitized.csv"):
-        return "sanitized"
-    if any(h in name for h in _SYNTHETIC_NAME_HINTS):
-        return "synthetic"
-    return "real"
-
 
 @tool_guard
 def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
-                     session_id: Optional[str] = None,
-                     data_classification: Optional[str] = None) -> Dict[str, Any]:
+                     session_id: Optional[str] = None) -> Dict[str, Any]:
     """
     读取薪酬文件并返回「预览 + 映射建议 + 列画像」，同时建立（或复用）会话。
 
@@ -980,16 +932,6 @@ def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
         Excel 工作表名；留空用第一个 sheet。
     session_id : str, optional
         传入则**复用**已有会话（覆盖其数据表），留空则新建。
-    data_classification : str, optional
-        数据分级标记，覆盖基于文件名的自动判定。可选值：
-          - "real"      ：含真实薪酬（默认，会触发报告红字水印与护栏）
-          - "sanitized" ：已脱敏（可安全外发，无红字水印）
-          - "synthetic" / "simulated" ：随机合成的模拟数据（如 mock_data.py 产出），
-            报告渲染中性「模拟数据」横幅，**不**触发真实数据护栏与红字水印。
-        留空时按文件名兜底：含 `_desensitized.csv` → sanitized；
-        含 sample / mock / messy / synthetic / simulated 关键字 → synthetic；否则 real。
-        解析后的规范值（simulated 归一为 synthetic）写入 session meta，
-        重加载后护栏判定依然 durable（R3）。
 
     返回
     -------
@@ -1042,12 +984,10 @@ def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
         "shape": {"rows": int(df.shape[0]), "cols": int(df.shape[1])},
     }
     # R3（完整性）：加载即写入数据分级标记，使检测逻辑在重加载后依然 durable。
-    # 优先级：显式 data_classification 参数 > 文件名关键字兜底 > fail-safe 视为真实数据。
-    # synthetic / simulated 统一规范为 canonical "synthetic"（与 config.yaml
-    # shadow_routing.eligible_only_on 的 "simulated" 语义等价）。
-    meta_patch["data_classification"] = _resolve_data_classification(
-        file_path=str(info.get("file_path") or ""),
-        explicit=data_classification,
+    # 命名含 _desensitized.csv 视为脱敏产物，否则 fail-safe 视为真实数据（多一道水印）。
+    _src_for_cls = str(info.get("file_path") or "")
+    meta_patch["data_classification"] = (
+        "sanitized" if _src_for_cls.endswith("_desensitized.csv") else "real"
     )
     try:
         store.set_meta(session_id, meta_patch)
@@ -1055,60 +995,15 @@ def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
         return error_result(exc)
 
     ready = not missing_required
-
-    # 低置信 / 歧义列（LLM 边界契约的授权范围；不在其中的列不得改动）
-    low_conf = [c for c, v in suggested.items()
-                if not v.get("suggest") or v.get("ambiguous") or v.get("confidence", 0) < 60]
-    ambiguous_columns = [
-        {"column": c,
-         "suggest": v.get("suggest"),
-         "confidence": v.get("confidence"),
-         "reasons": v.get("ambiguous_reasons", []),
-         "candidates": [x.get("field") for x in v.get("candidates", [])],
-         "sample_values": _column_sample_values(df, c, 5)}
-        for c, v in suggested.items() if v.get("ambiguous")
-    ]
-    # 零决策空间 = 必填齐备 且 无歧义列 且 无低置信列
-    auto_confirmable = bool(ready and not ambiguous_columns and not low_conf)
-
-    # ---- 自动固化路径（2026-09-04 续）----
-    # 当「零决策空间」时，直接用 suggested 的 suggest 固化映射并清洗落盘，
-    # 省掉模型/用户再调一次 confirm_mapping 的往返。复用 confirm_mapping 同一套
-    # （已测试）流程，不另写逻辑，避免分叉。
-    mapping_auto_confirmed = False
-    auto_confirm: Dict[str, Any] = {}
-    if auto_confirmable:
-        auto_map = {c: v["suggest"] for c, v in suggested.items() if v.get("suggest")}
-        res = confirm_mapping(session_id, auto_map, source_file=None)
-        if res.get("ok"):
-            mapping_auto_confirmed = True
-            auto_confirm = {
-                "mapped_fields": res.get("mapped_fields"),
-                "unmapped_columns": res.get("unmapped_columns"),
-                "missing_required": res.get("missing_required"),
-                "coerce_report": res.get("coerce_report"),
-            }
-
-    # ---- hint：三种情形 ----
-    if mapping_auto_confirmed:
-        hint = (
-            f"已读取 {info['rows']} 行 × {info['cols']} 列。"
-            "字段映射置信度高、无歧义列，**已自动确认并清洗落盘**，无需再调 confirm_mapping。"
-            "下一步：若表里有带宽三列可直接 analyze_current_state；"
-            "否则先调用 generate_band 生成建议带宽。"
-        )
-    elif not ready:
-        hint = (
-            f"已读取 {info['rows']} 行 × {info['cols']} 列。请查看 suggested_mapping，"
-            "结合列名语义与 preview 的实际取值确认映射（尤其注意 ambiguous=True 的列），"
-            f"然后调用 confirm_mapping(session_id='{session_id}', mapping={{...}})。"
-        )
-    else:
-        hint = (
-            f"必填字段（{', '.join(REQUIRED_FIELDS)}）均已被自动建议，"
-            f"但仍建议你复核 ambiguous=True 或 confidence<60 的列后，"
-            f"调用 confirm_mapping(session_id='{session_id}', mapping={{...}}) 固化映射。"
-        )
+    hint = (
+        f"已读取 {info['rows']} 行 × {info['cols']} 列。请查看 suggested_mapping，"
+        "结合列名语义与 preview 的实际取值确认映射（尤其注意 ambiguous=True 的列），"
+        f"然后调用 confirm_mapping(session_id='{session_id}', mapping={{...}})。"
+        if not ready else
+        f"必填字段（{', '.join(REQUIRED_FIELDS)}）均已被自动建议，"
+        f"但仍建议你复核 ambiguous=True 或 confidence<60 的列后，"
+        f"调用 confirm_mapping(session_id='{session_id}', mapping={{...}}) 固化映射。"
+    )
 
     return ok_result(
         session_id=session_id,
@@ -1126,15 +1021,16 @@ def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
             # 这是 LLM 边界契约的**唯一授权范围** —— 不在此列表里的列不得改动。
             # 每列额外附 sample_values：契约要求「决策输入包含该列前 5 行示例值」，
             # 这里直接给到列级别，省得模型拿 preview（行式 dict）去十字交叉取值。
-            "ambiguous_columns": ambiguous_columns,
-            "auto_confirmable": auto_confirmable,
+            "ambiguous_columns": [
+                {"column": c,
+                 "suggest": v.get("suggest"),
+                 "confidence": v.get("confidence"),
+                 "reasons": v.get("ambiguous_reasons", []),
+                 "candidates": [x.get("field") for x in v.get("candidates", [])],
+                 "sample_values": _column_sample_values(df, c, 5)}
+                for c, v in suggested.items() if v.get("ambiguous")
+            ],
         },
-        # 自动固化结果（仅当零决策空间时填充）
-        mapping_auto_confirmed=mapping_auto_confirmed,
-        mapped_fields=auto_confirm.get("mapped_fields"),
-        unmapped_columns=auto_confirm.get("unmapped_columns"),
-        missing_required=auto_confirm.get("missing_required", missing_required),
-        coerce_report=auto_confirm.get("coerce_report"),
         hint=hint,
     )
 

@@ -347,12 +347,7 @@ check("员工ID已哈希（非原始 E0001 格式）",
       not des_df["emp_id"].astype(str).str.match(r"^E\d+$").any())
 check("司龄已分箱为区间标签",
       des_df["tenure_years"].dropna().astype(str).str.contains("年").all())
-# 临时文件清理：本文件其余部分是模块级执行的脚本式测试，pytest 收集阶段即会运行到这里。
-# 清理失败绝不能让收集中断（例如某些环境下删除走回收站 API 可能失败），失败即静默跳过。
-try:
-    os.remove(out_path)
-except OSError:
-    pass
+os.remove(out_path)
 
 
 # =============================================================================

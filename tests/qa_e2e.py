@@ -66,26 +66,6 @@ def _row(criterion, expected, actual, verdict, note=""):
             "verdict": verdict, "note": note}
 
 
-def _clean_stale_reports() -> None:
-    """测试隔离（P2-5 根因修复）：清掉上一轮留下的报告产物，避免 FIX3 把历史残留误判为污染。
-
-    只删报告类文件（``薪酬诊断报告_*`` / ``*.data_guard.md``），保留 ``.gitkeep``
-    与其它文件（如 ``qa_e2e_result.txt``）。在每轮 generate_report 之前调用，
-    使 FIX3 无论运行顺序如何都只看到本轮产物 → 判定确定性。
-    """
-    for d in (os.path.join(ROOT, "report"), _OUT_DIR):
-        if not os.path.isdir(d):
-            continue
-        for fn in os.listdir(d):
-            if fn in (".gitkeep",):
-                continue
-            if fn.startswith("薪酬诊断报告_") or fn.endswith(".data_guard.md"):
-                try:
-                    os.remove(os.path.join(d, fn))
-                except OSError:
-                    pass
-
-
 def main() -> int:
     rows = []
     sid = None
@@ -271,9 +251,6 @@ def main() -> int:
 
         # ---------------- 报告层（generate_report 端到端）------------------
         from src.tools.report import generate_report
-        _clean_stale_reports()   # P2-5：先清上一轮残留，保证 FIX3 判定确定性
-        rep_dir = os.path.join(_OUT_DIR)   # 与 COMP_REPORT_DIR 一致（generate_report 实际落盘目录）
-        _before = set(os.listdir(rep_dir)) if os.path.isdir(rep_dir) else set()
         rep = generate_report(sid, title="薪酬诊断报告", fmt="both")
         ok = rep.get("ok") and rep.get("sections") == SEVEN_SECTIONS
         rows.append(_row("REPORT 七章齐全且顺序正确", "7 章 / 顺序固定",
@@ -320,23 +297,21 @@ def main() -> int:
                          "sys.exit 位于 if __name__ == '__main__' 块内",
                          "已守卫" if guard_ok else "未守卫/文件缺失",
                          "PASS" if guard_ok else "FAIL"))
-        # FIX3：真实列举实际报告目录（取 generate_report 真实落盘目录，而非硬编码 ROOT/report，
-        # 因为 qa_e2e 已通过 COMP_REPORT_DIR 把产物重定向到 _OUT_DIR）。
-        # P2-5 根因修复（顺序无关）：仅把「本次运行新创建、且文件名不含本轮 run_ts」的文件
-        # 判为污染。运行前已 _clean_stale_reports()，再用运行前快照 _before 做差集，
-        # 因此无论其他测试（如 test_level_infer_and_guard 的模拟数据报告）是否先于本脚本
-        # 在 tests/_out 留下产物，都不会被误判为污染——判定完全由「本轮新增」决定。
-        rep_dir = os.path.dirname(rep.get("report_path") or os.path.join(_OUT_DIR, "x"))
+        rep_dir = os.path.join(ROOT, "report")
+        leftovers = sorted(f for f in os.listdir(rep_dir) if f != ".gitkeep") \
+            if os.path.isdir(rep_dir) else ["<report/ 不存在>"]
+        # 本次运行自身会产出 1 组报告（md+html），属**预期产物**，不计为污染。
+        # 以 generate_report 返回的 timestamp 做「同一次运行」的配对识别：
+        # md 与 html 共用同一 ts（report.py 内 ts 只计算一次），故按子串匹配即可。
+        # （早期版本只收 report_path/md_path，两者实为同一个 md 路径，
+        #   导致本次运行自己产出的 html 被误判为污染。）
         run_ts = str(rep.get("timestamp") or "")
-        _after = set(os.listdir(rep_dir)) if os.path.isdir(rep_dir) else set()
-        created = _after - _before   # 本轮 generate_report 真正新建的文件
-        pollution = [f for f in created if run_ts and run_ts not in f] \
-            if run_ts else sorted(created)
+        pollution = [f for f in leftovers if run_ts and run_ts not in f] \
+            if run_ts else leftovers
         rows.append(_row("FIX3 report/ 污染清理（真实列举）", "无本次运行外的残留产物",
                          f"残留 {len(pollution)} 个" + (f": {pollution[:5]}" if pollution else ""),
                          "PASS" if not pollution else "FAIL",
-                         f"报告目录 {rep_dir}，本轮新建 {len(created)} 个、时间戳 {run_ts or '缺失'}，"
-                         f"同戳产物不计入污染"))
+                         f"本次运行时间戳 {run_ts or '缺失'}，同戳产物不计入污染"))
 
     except Exception as exc:  # noqa: BLE001
         import traceback

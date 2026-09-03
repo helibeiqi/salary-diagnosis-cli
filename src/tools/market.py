@@ -54,7 +54,6 @@ from .schemas import (
     infer_job_family,
 )
 from .session import get_store
-from ._summary import build_market_summary_md
 
 # -----------------------------------------------------------------------------
 # 内置默认市场分位表（按岗位序列，单位：元/月）
@@ -274,16 +273,6 @@ def market_benchmark(
         gap_table=gap_table,
         by_family=by_family,
         cost=cost,
-        # P5 修复（2026-09-04 续）：语义化摘要由确定性代码生成，LLM 只做转述。
-        # 裸字段 JSON 曾诱导模型把"补齐成本"说成"节省"、并擅自跨字段加总。
-        summary_md=build_market_summary_md({
-            "strategy_used": strategy,
-            "source": src_desc,
-            "overall_gap": overall_gap,
-            "gap_table": gap_table,
-            "by_family": by_family,
-            "cost": cost,
-        }),
         columns_added=["mkt_target", "mkt_gap", "mkt_position"],
         meta_written="market" if write_back else None,
         warnings=warnings,

@@ -8,12 +8,10 @@ level_infer.py — 职位名称 → 职级 启发式推断（R1）
 真实 HR 工资表常见「有岗位(job_title)但没填职级(level)」的情况。而 `level` 是整条
 诊断流水线的**分组主键**——带宽 / CR / 市场对标全部按 level 分组。
 
-`loader.clean_dataframe` 历史上会在 level 缺失时**整行剔除**这些员工，导致能诊断的人数
+`loader.clean_dataframe` 在 level 缺失时会**整行剔除**这些员工，导致能诊断的人数
 骤降（实测发放表开箱只用上 4/9）。本模块在 `confirm_mapping` 阶段、当映射里
-「有 job_title 但无 level」时，用确定性启发式把 job_title 推断成 level；对**无法识别**的
-职位不再置 NaN（那会触发整行剔除、人数/成本基数错算），而是统一标为 `UNKNOWN` 单列保留——
-纳入人数与成本基数，但被 `generate_band` / `classify_cr` 排除出带宽重叠与 CR 诊断，
-报告透明单列「未识别」，让发放表开箱即用且基数不被低估。
+「有 job_title 但无 level」时，用确定性启发式把 job_title 推断成 level，把
+「缺 level 被全删」升级为「推断 + 覆盖率透明披露」，让发放表开箱即用。
 
 设计纪律（与本项目「确定性优先 / 绝不静默」一致）
 --------------------------------------------------------------------------------
@@ -64,8 +62,6 @@ _KEYWORD_LEVEL: List[Tuple[str, str]] = [
     # —— 实习 / 助理层 ——
     (r"实习|intern|trainee|学徒", "O1"),
     (r"助理|assistant|文员|clerk|助工", "O2"),
-    # —— 作业/辅助岗（厂务/后勤常见，原会落入 UNKNOWN）——
-    (r"司机|driver|厨师|保安|保洁|库管|仓管|叉车|装卸|普工|勤杂|门卫|宿管", "O2"),
     # —— 专业 / 技术层 ——
     (r"初级|junior|\bjr\b", "P1"),
     (r"工程师|engineer|技术员|technician|专员|specialist|分析|analyst|"
@@ -212,19 +208,15 @@ def infer_levels(
         "already_had": 0,
         "unresolved": 0,
         "coverage": 0.0,
-        "unresolved_label": "UNKNOWN",
         "unresolved_samples": [],
     }
 
     # 已有 level 列且非全空 → 不覆盖，避免丢用户数据
     if level_col in out.columns:
         existing = out[level_col].astype("object")
-        non_empty_mask = existing.map(
-            lambda v: v is not None and str(v).strip() != "")
-        non_empty = int(non_empty_mask.sum())
+        non_empty = int((~existing.isna() &
+                         existing.map(lambda v: str(v).strip() != "" if v is not None else False)).sum())
         if non_empty:
-            # 用户显式提供的 level 列中仍有空白项 → 标为 UNKNOWN 保留（不丢行）
-            out[level_col] = existing.where(non_empty_mask, "UNKNOWN")
             report["already_had"] = non_empty
             report["inferred"] = non_empty
             report["unresolved"] = total - non_empty
@@ -232,8 +224,9 @@ def infer_levels(
             # 仍收集未识别样本（供用户复核原有 level 的完整性）
             if report["unresolved"]:
                 report["unresolved_samples"] = [
-                    str(v)[:30] for v in existing[~non_empty_mask].dropna().head(8).tolist()
-                ]
+                    str(v)[:30] for v in existing.dropna()
+                    if str(v).strip() == ""
+                ][:8]
             return out, report
 
     if title_col not in out.columns:
@@ -243,10 +236,7 @@ def infer_levels(
     titles = out[title_col].astype("object")
     levels = titles.map(infer_level_from_title)
 
-    # 关键修复（Plan C·A）：未识别的职位**不再置 NaN**（NaN 会触发 clean_dataframe 整行
-    # 剔除、导致人数/成本基数错算），统一标为 UNKNOWN 单列保留。inferred/unresolved 计数
-    # 仍按「能否识别」真实记录，由报告透明披露覆盖率与未识别样本。
-    out[level_col] = levels.fillna("UNKNOWN")
+    out[level_col] = levels
 
     inferred = int(levels.notna().sum())
     unresolved_mask = levels.isna()

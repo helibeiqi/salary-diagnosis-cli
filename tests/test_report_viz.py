@@ -137,7 +137,7 @@ def test_ac24_charts() -> None:
 # AC-25 / AC-26 / AC-27：报告结构、图片路径、中文字体
 # =============================================================================
 
-def test_ac25_26_27_report() -> None:
+def test_ac25_26_27_report() -> Dict[str, Any]:
     section("AC-25/26/27 报告结构 · 图片相对路径 · 中文字体")
     res = report_mod.generate_report(
         session=build_mock_session("viz-test-001"), fmt="both", title="薪酬诊断报告")
@@ -190,11 +190,9 @@ def test_ac25_26_27_report() -> None:
         html = f.read()
     check("HTML 报告含中文字体配置", "Microsoft YaHei" in html)
     check("HTML 报告含 <meta charset=\"utf-8\">", '<meta charset="utf-8">' in html)
-    # py<3.12 不允许 f-string 表达式内含反斜杠转义（PEP 701），先取计数再进 f-string。
-    n_div = html.count('class="plotly-graph-div"')
     check("HTML 报告内嵌了图表 div",
-          n_div >= 6,
-          f"找到 {n_div} 个")
+          html.count('class="plotly-graph-div"') >= 6,
+          f"找到 {html.count('class=\"plotly-graph-div\"')} 个")
     # plotly.js 只应引入一次（多图重复加载 3MB 会让报告打开很慢）
     n_js = len(re.findall(r"cdn\.plot\.ly/plotly-[0-9.]+\.min\.js", html))
     check("plotly.js 只引入一次", n_js == 1, f"找到 {n_js} 处")
@@ -232,7 +230,7 @@ def test_ac25_26_27_report() -> None:
     check("无 Python None 泄漏到正文", " None " not in md.replace("`None`", ""))
     check("无 nan 泄漏到正文", "nan" not in md.lower().replace("nanotech", ""))
     check("正文字数合理（>4000 字）", len(md) > 4000, f"{len(md)} 字")
-    # 不返回非 None（pytest 未来版本会对 test 函数返回非 None 报错）；结果已通过 check() 累积。
+    return res
 
 
 # =============================================================================
