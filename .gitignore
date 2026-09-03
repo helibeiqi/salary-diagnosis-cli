@@ -52,3 +52,7 @@ node_modules/
 # （prepublishOnly 也会跑）。入库会造成源码与产物不同步的噪音。
 src/plugins/comp-tool/lib/
 *.tsbuildinfo
+
+# MCP 客户端本机配置（含机器专属绝对路径，仅本机用，绝不入库；
+# 模板见 .mcp.json.example，可提交）。
+/.mcp.json

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "salary-diagnosis": {
+      "command": "C:/ProgramData/anaconda3/python.exe",
+      "args": ["src/mcp_adapter.py"],
+      "cwd": "C:/ABSOLUTE/PATH/TO/salary-diagnosis-cli",
+      "env": {
+        "COMP_TELEMETRY_OFF": "1"
+      }
+    }
+  }
+}
