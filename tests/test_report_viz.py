@@ -137,7 +137,7 @@ def test_ac24_charts() -> None:
 # AC-25 / AC-26 / AC-27：报告结构、图片路径、中文字体
 # =============================================================================
 
-def test_ac25_26_27_report() -> Dict[str, Any]:
+def test_ac25_26_27_report() -> None:
     section("AC-25/26/27 报告结构 · 图片相对路径 · 中文字体")
     res = report_mod.generate_report(
         session=build_mock_session("viz-test-001"), fmt="both", title="薪酬诊断报告")
@@ -230,7 +230,7 @@ def test_ac25_26_27_report() -> Dict[str, Any]:
     check("无 Python None 泄漏到正文", " None " not in md.replace("`None`", ""))
     check("无 nan 泄漏到正文", "nan" not in md.lower().replace("nanotech", ""))
     check("正文字数合理（>4000 字）", len(md) > 4000, f"{len(md)} 字")
-    return res
+    # 不返回非 None（pytest 未来版本会对 test 函数返回非 None 报错）；结果已通过 check() 累积。
 
 
 # =============================================================================

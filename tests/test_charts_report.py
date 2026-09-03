@@ -109,7 +109,7 @@ def _decode_unicode_escapes(s: str) -> str:
 # 一、图表工厂自验（AC-24 / AC-27 / C1 / D5）
 # =============================================================================
 
-def test_charts() -> dict:
+def test_charts() -> None:
     """6 个图表函数逐个落盘，校验体积、中文字体、返回结构、PNG 降级。"""
     hr("一、图表工厂自验（AC-24 / AC-27 / C1 / D5）")
     meta = build_mock_meta()
@@ -185,7 +185,8 @@ def test_charts() -> dict:
 
     check(f"共生成 {REQUIRED_CHART_COUNT} 张图表", len(saved) == REQUIRED_CHART_COUNT,
           f"实到 {len(saved)} 张：{sorted(saved)}")
-    return saved
+    # 注：本函数刻意不返回非 None（历史上返回 dict 会让 pytest 未来版本报
+    # "test function returned result which is not None"），验收结果经 check() 累积。
 
 
 # =============================================================================
@@ -250,7 +251,7 @@ def test_chart_semantics() -> None:
 # 三、报告生成集成自验（AC-25 / AC-26）
 # =============================================================================
 
-def test_report_full() -> dict:
+def test_report_full() -> None:
     """用完整假数据跑 generate_report，校验七章、图片引用可解析、关键内容。"""
     hr("三、报告生成集成自验（AC-25 / AC-26）")
     sess = build_mock_session("test-full-001")
@@ -342,7 +343,7 @@ def test_report_full() -> dict:
     check("meta_keys 命中全部 7 个步骤",
           len(res.get("meta_keys", res.get("meta_keys_present", []))) in (0, 7),
           str(res.get("meta_keys")))
-    return res
+    # 不返回非 None（pytest 未来版本会对 test 函数返回非 None 报错）；结果已通过 check() 累积。
 
 
 # =============================================================================

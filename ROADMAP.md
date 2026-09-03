@@ -13,6 +13,9 @@
 |----|------|------|
 | **R1 职位→职级推断** | ✅ 已落地 | 新增 `src/tools/level_infer.py`；`confirm_mapping` 在「缺 level 但有 job_title」时确定性启发式补 level（O/P/S/M 四段 11 级），覆盖率透明进 warnings。解决「缺 level 整行被删 → 能诊断人数骤降（实测开箱 4/9）」。 |
 | **R2 敏感数据护栏** | ✅ 已落地 | ① `assets/*.html` 6 张图表从 git 跟踪移除（历史运行内嵌真实薪资，绝不入库），`src/data/` 行级明细红线延续；② `report.py` 真实数据报告加**顶部红字水印 + 页脚警示 + stderr 警告**，不再谎称「脱敏模拟数据」；已脱敏（`_desensitized.csv` 或 `data_classification=sanitized`）则标注可安全外发。 |
+| **R3 `desensitize`↔报告标记打通** | ✅ 已落地 | `desensitize()` 显式写 `data_classification=sanitized` 入 session meta（重加载仍带标记）；`load_salary_data` 文件名兜底 + 显式 `data_classification` 参数；本次 P1-4 扩展 `synthetic`/`simulated`：模拟数据渲染中性横幅、不触发真实数据护栏。护栏不再依赖单一命名约定。 |
+| **R4 外发二次确认门** | ✅ 已落地 | `classification=real` 且未确认时生成 `报告名.data_guard.md` 安全提示；CLI `--i-know-this-is-real-data` 可抑制。 |
+| **P1-4 模拟数据分级** | ✅ 已落地（本批） | `sample_salary.csv`/`messy_salary.csv` 等合成演示数据加载后自动判为 `synthetic`，报告去红字水印、可安全外发演示；`load_salary_data(..., data_classification=...)` 可显式覆盖。 |
 | **P0 perf_grade 崩溃** | ✅ 已落地（v0.1.1） | `increase._resolve_perf_weights` 在缺 `perf_grade` 列时优雅回退，不再 `KeyError`。 |
 
 ---
@@ -26,8 +29,8 @@
 
 ### P1 — 安全 / 合规红线
 - [x] **R2 图表与报告护栏**（已修，见上）。
-- [ ] **R3 `desensitize` ↔ 报告标记打通**：当前报告靠「文件名后缀 `_desensitized.csv`」兜底判断已脱敏；应让 `desensitize()` 显式把 `data_classification=sanitized` 写入 session meta（即便重加载也带标记），使护栏不依赖命名约定。
-- [ ] **R4 外发二次确认门**：`generate_report(fmt 含 html 且 classification=real)` 时，除 stderr 警告外，额外生成一份 `报告名.data_guard.md` 提示文件，或 CLI 层加 `--i-know-this-is-real-data` 强制确认开关，避免误把真实报告提交到公开仓库。
+- [x] **R3 `desensitize` ↔ 报告标记打通（已落地）**：`desensitize()` 已显式把 `data_classification=sanitized` 写入 session meta（`loader.py:1498`），即便重加载也带标记；`load_salary_data` 同时按文件名兜底（`_desensitized.csv` → sanitized）。本次（P1-4）进一步把该分级体系扩展到 **`synthetic`/`simulated`**：`mock_data.py` 产出的 `sample_salary.csv`/`messy_salary.csv` 加载后自动识别为模拟数据，报告渲染中性「模拟数据，可安全演示」横幅、**不**触发真实数据红字水印与 `data_guard.md` 护栏；`load_salary_data` 亦接受显式 `data_classification` 参数。护栏逻辑因此**不再依赖单一命名约定**。
+- [x] **R4 外发二次确认门（已落地）**：`generate_report` 在 `classification=real` 且未确认时，除 stderr 警告外额外生成 `报告名.data_guard.md` 安全提示文件；CLI 层 `--i-know-this-is-real-data`（`main.py:495`）可抑制该提示，避免误把真实报告提交到公开仓库。
 - [ ] **R5 推断覆盖率阈值告警**：R1 推断覆盖率低于阈值（建议 70%）时，除 warning 外，在 `confirm_mapping` 返回里标 `needs_level_review=True`，驱动调用方（人或模型）在落库前复核，而非仅被动提示。
 
 ### P2 — 体验 / 可扩展性
