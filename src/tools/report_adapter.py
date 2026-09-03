@@ -230,8 +230,9 @@ def _view_diagnose(sec: Dict[str, Any], df, payroll: Optional[float]) -> Dict[st
     red_n = int(_f(counts.get("红圈")) or 0)
     green_n = int(_f(counts.get("绿圈")) or 0)
     ok_n = int(_f(counts.get("合理")) or 0)
+    unknown_n = int(_f(counts.get("未识别")) or 0)
     if not total or total <= 0:
-        total = red_n + green_n + ok_n
+        total = red_n + green_n + ok_n + unknown_n
 
     def _grp(n: int, annual_cost: Any) -> Dict[str, Any]:
         return {
@@ -247,6 +248,7 @@ def _view_diagnose(sec: Dict[str, Any], df, payroll: Optional[float]) -> Dict[st
         "summary": {
             "headcount": total or (int(len(df)) if df is not None else None),
             "total_count": total,
+            "unknown_count": unknown_n,
             "level_count": len(lv_counts) or len(dist),
             "total_annual_cost": payroll,
             "annual_cost": payroll,
@@ -262,6 +264,7 @@ def _view_diagnose(sec: Dict[str, Any], df, payroll: Optional[float]) -> Dict[st
             "green": _grp(green_n, cost.get("green_to_min_annual")),
             "ok": _grp(ok_n, None),
             "normal": _grp(ok_n, None),
+            "unknown": _grp(unknown_n, None),
             "red_cr": sec.get("red_cr", RED_CIRCLE_CR),
             "green_cr": sec.get("green_cr", GREEN_CIRCLE_CR),
         },
