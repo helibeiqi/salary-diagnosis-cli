@@ -1,0 +1,13 @@
+# salary-diagnosis-cli 依赖清单
+# 安装：pip install -r requirements.txt
+# Python 版本要求：>= 3.11（CI 在 3.11 上运行；f-string 语法兼容 3.11，3.12+ 亦可）
+#
+# 下方"已验证版本"为作者环境实测通过的版本，供对账参考；
+# 安装时不锁死，只给宽松下限，避免与既有环境冲突。
+
+pandas>=2.0        # 已验证 2.3.3：薪酬表读取/清洗/聚合
+numpy>=1.26        # 已验证 2.4.6：数值计算
+pyyaml>=6.0        # 已验证 6.0.x：读取 config.yaml
+openpyxl>=3.1      # 已验证 3.1.5：读取 xlsx 输入
+plotly>=5.18       # 已验证 7.0.0：图表 HTML 生成
+pytest>=7.4        # 已验证 8.x：运行 tests/

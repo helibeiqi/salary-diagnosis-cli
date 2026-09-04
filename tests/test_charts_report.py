@@ -331,9 +331,12 @@ def test_report_full() -> None:
         html = io.open(html_path, encoding="utf-8").read()
         check("HTML 声明 lang=zh-CN", 'lang="zh-CN"' in html)
         check("HTML 含中文字体栈", "Microsoft YaHei" in html)
+        # py<3.12 不允许 f-string 表达式内含反斜杠转义（PEP 701），
+        # 先取出计数再进 f-string，避免 'class=\"...\"' 写法导致 CI(python3.11) 收集失败。
+        n_div = html.count('class="plotly-graph-div"')
         check("HTML 内嵌了图表 div（而非只剩图片链接）",
-              html.count('class="plotly-graph-div"') >= 4,
-              f"内嵌 {html.count('class=\"plotly-graph-div\"')} 个")
+              n_div >= 4,
+              f"内嵌 {n_div} 个")
         check("HTML 中 plotly.js 只引入一次（去重复载）",
               html.count("cdn.plot.ly") == 1, f"出现 {html.count('cdn.plot.ly')} 次")
         check("HTML 渲染出表格", html.count("<table") >= 5, f"{html.count('<table')} 个")

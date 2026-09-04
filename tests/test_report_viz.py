@@ -190,9 +190,11 @@ def test_ac25_26_27_report() -> None:
         html = f.read()
     check("HTML 报告含中文字体配置", "Microsoft YaHei" in html)
     check("HTML 报告含 <meta charset=\"utf-8\">", '<meta charset="utf-8">' in html)
+    # py<3.12 不允许 f-string 表达式内含反斜杠转义（PEP 701），先取计数再进 f-string。
+    n_div = html.count('class="plotly-graph-div"')
     check("HTML 报告内嵌了图表 div",
-          html.count('class="plotly-graph-div"') >= 6,
-          f"找到 {html.count('class=\"plotly-graph-div\"')} 个")
+          n_div >= 6,
+          f"找到 {n_div} 个")
     # plotly.js 只应引入一次（多图重复加载 3MB 会让报告打开很慢）
     n_js = len(re.findall(r"cdn\.plot\.ly/plotly-[0-9.]+\.min\.js", html))
     check("plotly.js 只引入一次", n_js == 1, f"找到 {n_js} 处")
