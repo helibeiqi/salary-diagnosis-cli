@@ -338,7 +338,8 @@ def _resolve_required_params(strategy, job_model, budget_pct):
 def cmd_pipeline(file_path: str, budget_pct, as_json: bool,
                  stop_on_error: bool = False, strategy=None, job_model=None,
                  auto_confirm: bool = False, mapping_file: Optional[str] = None,
-                 i_know_real_data: bool = False) -> int:
+                 i_know_real_data: bool = False,
+                 synthetic: bool = False) -> int:
     """
     按 stage 顺序跑完整条诊断链，模拟模型的理想调用序列。
 
@@ -385,6 +386,16 @@ def cmd_pipeline(file_path: str, budget_pct, as_json: bool,
     session_id = (env.get("meta") or {}).get("session_id") \
         or (env.get("data") or {}).get("session_id")
     print(f"\n会话 ID：{session_id}")
+
+    # --demo 合成模拟数据：标记会话分级为 synthetic，使报告生成器跳过真实数据护栏
+    # （红字水印 + data_guard.md sidecar），兑现「外发零风险」承诺。
+    # 失败静默：分级标记只是报告呈现层，绝不影响诊断计算本身。
+    if synthetic and session_id:
+        try:
+            from src.tools.session import get_store
+            get_store().set_meta(session_id, {"data_classification": "synthetic"})
+        except Exception:  # noqa: BLE001
+            pass
 
     # —— 映射确认：三条路径 ——
     if mapping_file:
@@ -494,7 +505,8 @@ def cmd_demo(as_json: bool = False) -> int:
     print("#" * 78)
 
     rc = cmd_pipeline(sample, 0.05, as_json,
-                      strategy="A", job_model="hay", auto_confirm=True)
+                      strategy="A", job_model="hay", auto_confirm=True,
+                      synthetic=True)
 
     if rc == 0 and not as_json:
         print()

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "salary-diagnosis-cli"
+version = "0.2.2"
+description = "面向 HR 的薪酬诊断 CLI：带宽设计 / 红绿圈诊断 / 市场对标 / 调薪模拟 / 固浮比 / 岗位评估，全链路确定性计算，支持本地部署（薪资数据不出内网）"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "helibeiqi" }]
+keywords = ["hr", "compensation", "salary", "payroll", "compa-ratio", "salary-band", "c&b"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Office/Business :: Financial",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pandas>=2.0,<3.0",
+    "pyarrow>=14.0",
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+    "openpyxl>=3.1",
+    "plotly>=5.18",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+web = ["streamlit>=1.30"]
+
+[project.scripts]
+salary-diagnosis = "run_agent:main"
+
+[tool.setuptools]
+py-modules = ["run_agent"]
+packages = ["src", "src.tools"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -143,6 +143,9 @@
 > 第 1、2 步（确定性流水线）**不需要任何大模型**；第 3 步（对话形态）需要本地
 > Ollama（`ollama pull deepseek-r1:14b`）或本地 vLLM。**全流程无需任何云端密钥。**
 >
+> **Web UI（可选）**：`pip install -e ".[web]"`（或 `pip install streamlit`）后，
+> 即可用浏览器跑诊断，见下方第 5 步。Web UI 与 CLI 共用同一套底层计算代码。
+>
 > Windows 下命令行建议带 `PYTHONIOENCODING=utf-8` 前缀防中文乱码；
 > macOS / Linux 直接用 `python3` 即可。
 
@@ -178,6 +181,27 @@ dsh --profile comp "帮我看看 data/sample_salary.csv，诊断一下红绿圈"
 
 > 默认 provider 在 `config.yaml` 中为 `ollama-local`，且 `models.fallback.enabled:false`
 > —— 本地模型不可用时**不会**偷偷切到云端，宁可报错提示你启动 Ollama。
+
+### 5) Web UI（零命令行，适合分享给同事）
+
+不想让同事记命令行参数？`app.py` 把底层诊断链包成网页界面，全部计算在本机完成，
+**薪酬数据不出内网**：
+
+```bash
+pip install -e ".[web]"      # 首次：装 streamlit
+streamlit run app.py         # 启动，终端会打印本地访问地址（默认 http://localhost:8501）
+```
+
+打开网页后有两种模式：
+
+| 模式 | 说明 | 风险 |
+|---|---|---|
+| **一键演示（零风险）** | 内置合成模拟数据，点「运行演示」零交互跑完整链；报告带"模拟数据"中性横幅，**可安全截图外发 / 投屏** | 无 |
+| **诊断我的工资表** | 上传 `.csv` / `.xlsx` → 自动映射 → 生成报告 → 网页预览 + 下载 md/html | 真实敏感数据，报告仅限本地查看，**切勿外发** |
+
+> Web UI 不重新实现任何计算逻辑，只复用 `src/main.main(argv)` 编程式调用底层诊断链；
+> 因此与 CLI 口径完全一致、结论可审计。真实数据报告默认带红色水印与 `data_guard.md`
+> 安全提示，网页也明确标注"切勿外发"。
 
 ---
 
@@ -258,6 +282,8 @@ salary-diagnosis-cli/
 ├── LICENSE                  # MIT 许可证
 ├── .env.example             # 密钥与环境变量样例（密钥绝不进仓库）
 ├── mock_data.py             # 造数脚本（150 行高仿真脱敏数据 + 脏数据变体）
+├── run_agent.py             # 本地 CLI 入口（零外部依赖也能跑确定性流水线）
+├── app.py                   # Streamlit Web UI（可选；pip install -e ".[web]" 后 streamlit run app.py）
 ├── docs/
 │   ├── PRD.md               # 产品需求文档（FR/AC/NFR/金标准样例）
 │   └── ARCHITECTURE.md      # 架构与 11 工具接口规格（工程师实现合同）

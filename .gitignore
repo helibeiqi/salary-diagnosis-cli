@@ -14,6 +14,8 @@ __pycache__/
 
 # 真实薪资数据（仅允许 data/ 下的脱敏样例；private 不跟踪）
 data/private/
+# Web UI（app.py）上传的真实工资表临时落盘 —— 含行级敏感数据，绝不入库
+data/web_upload_*
 
 # 运行期产物（工具每次跑都会重新生成，进仓库只会造成「污染」+ 真实薪资泄漏）
 #   report/薪酬诊断报告_YYYYMMDD_HHMMSS.{md,html} —— 报告导出
@@ -43,6 +45,10 @@ src/data/
 .DS_Store
 tests/_out/
 .state/
+
+# Python 虚拟环境（本机依赖隔离，绝不入库）
+.venv/
+venv/
 
 # ---------------------------------------------------------------------------
 # dsh 插件层（src/plugins/comp-tool/）—— 与金标准 dsh-excel-kit 同口径

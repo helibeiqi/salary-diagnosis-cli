@@ -1905,7 +1905,10 @@ def generate_report(
 
         # ---- 数据护栏（R2）：判断数据分级，仅真实数据加醒目红字水印 + 护栏 ----
         # synthetic（模拟数据）/ sanitized（已脱敏）均不触发真实数据护栏与 data_guard sidecar。
-        classification = _detect_salary_classification(getattr(resolved, "meta", None) or meta)
+        # 注意：_resolve_session 的返回值首元素就是 meta 字典（不是 Session 对象），
+        # 故直接把 resolved 传给分类函数；仅当 resolved 非 dict 时回退到 .meta / meta 参数。
+        classification = _detect_salary_classification(
+            resolved if isinstance(resolved, dict) else (getattr(resolved, "meta", None) or meta))
         if classification == "real":
             guard_msg = ("⚠️ 薪酬数据护栏：本报告含真实薪酬数值，仅限本地查看，"
                          "请勿外发或提交到公开仓库。如需外发，请先调用 desensitize() "
