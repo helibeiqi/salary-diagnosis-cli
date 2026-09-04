@@ -1055,15 +1055,60 @@ def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
         return error_result(exc)
 
     ready = not missing_required
-    hint = (
-        f"已读取 {info['rows']} 行 × {info['cols']} 列。请查看 suggested_mapping，"
-        "结合列名语义与 preview 的实际取值确认映射（尤其注意 ambiguous=True 的列），"
-        f"然后调用 confirm_mapping(session_id='{session_id}', mapping={{...}})。"
-        if not ready else
-        f"必填字段（{', '.join(REQUIRED_FIELDS)}）均已被自动建议，"
-        f"但仍建议你复核 ambiguous=True 或 confidence<60 的列后，"
-        f"调用 confirm_mapping(session_id='{session_id}', mapping={{...}}) 固化映射。"
-    )
+
+    # 低置信 / 歧义列（LLM 边界契约的授权范围；不在其中的列不得改动）
+    low_conf = [c for c, v in suggested.items()
+                if not v.get("suggest") or v.get("ambiguous") or v.get("confidence", 0) < 60]
+    ambiguous_columns = [
+        {"column": c,
+         "suggest": v.get("suggest"),
+         "confidence": v.get("confidence"),
+         "reasons": v.get("ambiguous_reasons", []),
+         "candidates": [x.get("field") for x in v.get("candidates", [])],
+         "sample_values": _column_sample_values(df, c, 5)}
+        for c, v in suggested.items() if v.get("ambiguous")
+    ]
+    # 零决策空间 = 必填齐备 且 无歧义列 且 无低置信列
+    auto_confirmable = bool(ready and not ambiguous_columns and not low_conf)
+
+    # ---- 自动固化路径（2026-09-04 续）----
+    # 当「零决策空间」时，直接用 suggested 的 suggest 固化映射并清洗落盘，
+    # 省掉模型/用户再调一次 confirm_mapping 的往返。复用 confirm_mapping 同一套
+    # （已测试）流程，不另写逻辑，避免分叉。
+    mapping_auto_confirmed = False
+    auto_confirm: Dict[str, Any] = {}
+    if auto_confirmable:
+        auto_map = {c: v["suggest"] for c, v in suggested.items() if v.get("suggest")}
+        res = confirm_mapping(session_id, auto_map, source_file=None)
+        if res.get("ok"):
+            mapping_auto_confirmed = True
+            auto_confirm = {
+                "mapped_fields": res.get("mapped_fields"),
+                "unmapped_columns": res.get("unmapped_columns"),
+                "missing_required": res.get("missing_required"),
+                "coerce_report": res.get("coerce_report"),
+            }
+
+    # ---- hint：三种情形 ----
+    if mapping_auto_confirmed:
+        hint = (
+            f"已读取 {info['rows']} 行 × {info['cols']} 列。"
+            "字段映射置信度高、无歧义列，**已自动确认并清洗落盘**，无需再调 confirm_mapping。"
+            "下一步：若表里有带宽三列可直接 analyze_current_state；"
+            "否则先调用 generate_band 生成建议带宽。"
+        )
+    elif not ready:
+        hint = (
+            f"已读取 {info['rows']} 行 × {info['cols']} 列。请查看 suggested_mapping，"
+            "结合列名语义与 preview 的实际取值确认映射（尤其注意 ambiguous=True 的列），"
+            f"然后调用 confirm_mapping(session_id='{session_id}', mapping={{...}})。"
+        )
+    else:
+        hint = (
+            f"必填字段（{', '.join(REQUIRED_FIELDS)}）均已被自动建议，"
+            f"但仍建议你复核 ambiguous=True 或 confidence<60 的列后，"
+            f"调用 confirm_mapping(session_id='{session_id}', mapping={{...}}) 固化映射。"
+        )
 
     return ok_result(
         session_id=session_id,
@@ -1081,16 +1126,15 @@ def load_salary_data(file_path: str, sheet_name: Optional[str] = None,
             # 这是 LLM 边界契约的**唯一授权范围** —— 不在此列表里的列不得改动。
             # 每列额外附 sample_values：契约要求「决策输入包含该列前 5 行示例值」，
             # 这里直接给到列级别，省得模型拿 preview（行式 dict）去十字交叉取值。
-            "ambiguous_columns": [
-                {"column": c,
-                 "suggest": v.get("suggest"),
-                 "confidence": v.get("confidence"),
-                 "reasons": v.get("ambiguous_reasons", []),
-                 "candidates": [x.get("field") for x in v.get("candidates", [])],
-                 "sample_values": _column_sample_values(df, c, 5)}
-                for c, v in suggested.items() if v.get("ambiguous")
-            ],
+            "ambiguous_columns": ambiguous_columns,
+            "auto_confirmable": auto_confirmable,
         },
+        # 自动固化结果（仅当零决策空间时填充）
+        mapping_auto_confirmed=mapping_auto_confirmed,
+        mapped_fields=auto_confirm.get("mapped_fields"),
+        unmapped_columns=auto_confirm.get("unmapped_columns"),
+        missing_required=auto_confirm.get("missing_required", missing_required),
+        coerce_report=auto_confirm.get("coerce_report"),
         hint=hint,
     )
 

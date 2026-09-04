@@ -64,6 +64,7 @@ from .schemas import (
     infer_job_family,
 )
 from .session import get_store
+from ._summary import build_paymix_summary_md
 
 # PRD 硬性金句（必须原样出现在报告与 meta 的方法论段落）
 PAYMIX_PRINCIPLE = (
@@ -329,5 +330,11 @@ def simulate_pay_mix(session_id: str,
         curves=curves,
         methodology_premise_risks=methodology,
         principle=PAYMIX_PRINCIPLE,
+        # P7 修复（2026-09-04 续）：语义化摘要由代码生成，LLM 只做转述。
+        summary_md=build_paymix_summary_md({
+            "principle": PAYMIX_PRINCIPLE,
+            "by_family": by_family,
+            "methodology_premise_risks": methodology,
+        }),
         hint=hint,
     )

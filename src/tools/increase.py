@@ -54,6 +54,7 @@ from .schemas import (
     RED_CIRCLE_CR,
 )
 from .session import get_store
+from ._summary import build_increase_summary_md
 
 # 合法策略枚举
 _STRATEGIES = ("A", "B", "C", "D")
@@ -264,6 +265,18 @@ def simulate_increase(
         step1_headcount=step1_info["headcount"] if step1_info else None,
         step1_scaled=step1_info["scaled"] if step1_info else None,
         unused_budget=round(unused_budget, 2) if cap_at_max else None,
+        # P6 修复（2026-09-04 续）：语义化摘要由代码生成，LLM 只做转述。
+        summary_md=build_increase_summary_md({
+            "strategy": strategy,
+            "budget_rate": budget_pct,
+            "budget_amount": round(budget, 2),
+            "base_total_annual": round(base_total, 2),
+            "total_cost": round(total_cost, 2),
+            "usage_rate": usage_rate,
+            "step1_cost": step1_info["cost"] if step1_info else None,
+            "step1_headcount": step1_info["headcount"] if step1_info else None,
+            "unused_budget": round(unused_budget, 2) if cap_at_max else None,
+        }),
         meta_written="increase" if write_back else None,
         hint="调薪模拟完成。下一步：generate_report 汇总成报告，或对比多种策略。",
     )

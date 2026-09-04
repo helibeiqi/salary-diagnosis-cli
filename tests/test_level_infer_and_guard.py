@@ -195,7 +195,10 @@ def test_synthetic_load_and_report() -> None:
     cls2 = get_store().get_meta(sid).get("data_classification")
     check("显式 data_classification=real 生效", cls2 == "real", str(cls2))
 
-    # 复用同会话（已是 synthetic）跑报告：不应生成 data_guard.md
+    # 复位回 synthetic 再跑报告：前面用同一 sid 验过 real 覆盖，会持久化进 meta，
+    # 若不复位，报告会按 real 生成护栏，使下面的 synthetic 断言失真。
+    load_salary_data(sample, session_id=sid, data_classification="synthetic")
+    # 复用同会话（已复位为 synthetic）跑报告：不应生成 data_guard.md
     mp = {c: v["suggest"] for c, v in res["suggested_mapping"].items() if v.get("suggest")}
     confirm_mapping(sid, mp)
     rep = generate_report(sid, fmt="html", title="模拟数据诊断")

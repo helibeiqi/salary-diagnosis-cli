@@ -100,6 +100,15 @@ except Exception:  # noqa: BLE001
                 },
             }
 
+# 语义化摘要（summary_md）由 _summary.py 集中生成，导入失败则交由 registry 兜底。
+try:  # pragma: no cover
+    from tools._summary import build_report_summary_md  # type: ignore
+except Exception:  # noqa: BLE001
+    try:
+        from ._summary import build_report_summary_md  # type: ignore
+    except Exception:  # noqa: BLE001
+        build_report_summary_md = None  # type: ignore
+
 # 业务常量从 schemas.py 取（单一真理源），导入失败用同值兜底
 try:  # pragma: no cover
     from tools.schemas import (  # type: ignore
@@ -2008,6 +2017,15 @@ def generate_report(
             generated_at=now,
             timestamp=ts,
             char_count=len(md_text),
+            # P9 修复（2026-09-04 续）：语义化摘要由代码生成；导入失败时 registry 兜底。
+            summary_md=build_report_summary_md({
+                "title": report_title,
+                "sections": sections_done,
+                "figure_count": len(ctx.figures),
+                "char_count": len(md_text),
+                "missing_sections": missing,
+                "broken_figures": [f["rel_path"] for f in broken],
+            }) if build_report_summary_md else None,
             fmt="both" if (want_md and want_html) else ("html" if want_html else "markdown"),
         )
 
