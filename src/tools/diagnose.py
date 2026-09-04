@@ -36,6 +36,7 @@ from .band import classify_cr, summarize_cr
 from .errors import UpstreamMissing, error_result, ok_result, tool_guard
 from .loader import require_columns, require_session
 from .session import get_store
+from ._summary import build_summary_md
 
 
 # -----------------------------------------------------------------------------
@@ -81,6 +82,7 @@ def analyze_current_state(
         red_green            红/绿/合理人数与占比
         cost                 红圈溢出 / 绿圈补足（至下限 / 至中位值）年化成本
         by_level             各职级红绿圈人数
+        summary_md           ★语义化摘要（代码生成，供 narration 直接转述；方向已标明）
         meta_written         回写到的 meta 键（diagnose）
     """
     # ---- 1) 取会话（映射须已确认）--------------------------------------------
@@ -149,6 +151,17 @@ def analyze_current_state(
         },
         cost=summary.get("cost", {}),
         by_level=summary.get("by_level", {}),
+        # P1 修复（2026-09-04 实测）：语义化摘要由确定性代码生成，让 LLM 只做转述。
+        # 裸字段 JSON 曾诱导模型把"补足成本"说成"节省"、并擅自跨字段加总（A/B 3/3 复现）。
+        summary_md=build_summary_md({
+            "cr_summary": summary.get("cr_stats", {}),
+            "red_green": {
+                "counts": summary.get("counts", {}),
+                "ratios": summary.get("ratios", {}),
+            },
+            "cost": summary.get("cost", {}),
+            "by_level": summary.get("by_level", {}),
+        }),
         meta_written="diagnose" if write_back else None,
         hint="现状诊断完成。下一步：market_benchmark 做市场对标，或 simulate_increase 做调薪模拟。",
     )
@@ -158,6 +171,12 @@ def _now() -> str:
     """返回人类可读时间戳（与 band/loader 同款，避免重复依赖）。"""
     from datetime import datetime
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# -----------------------------------------------------------------------------
+# 语义化摘要（summary_md）已迁至 _summary.py（单一真理源，见该模块「设计四原则」）。
+# 本模块只通过 `from ._summary import build_summary_md` 引用，避免逻辑分叉。
+# -----------------------------------------------------------------------------
 
 
 # 供 registry / 工具注册表引用的元数据（名称、入参、返回），保持与 PRD 11 工具命名空间一致
