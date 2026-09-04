@@ -5,7 +5,10 @@
 # 下方"已验证版本"为作者环境实测通过的版本，供对账参考；
 # 安装时不锁死，只给宽松下限，避免与既有环境冲突。
 
-pandas>=2.0        # 已验证 2.3.3：薪酬表读取/清洗/聚合
+pandas>=2.0,<3.0   # 已验证 2.3.3：薪酬表读取/清洗/聚合（pandas 3.x 有 dtype/CoW 破坏性变更，
+                   #   本项目尚未在 3.x 下验证，实测通过后可放宽上限）
+pyarrow>=14.0      # 已验证 25.0.1：parquet 引擎（.state/ 会话持久化 to_parquet/read_parquet 硬依赖；
+                   #   pandas 自身不含 parquet 引擎，缺它 load_salary_data 在保存会话时直接报 COMP_ERROR）
 numpy>=1.26        # 已验证 2.4.6：数值计算
 pyyaml>=6.0        # 已验证 6.0.x：读取 config.yaml
 openpyxl>=3.1      # 已验证 3.1.5：读取 xlsx 输入

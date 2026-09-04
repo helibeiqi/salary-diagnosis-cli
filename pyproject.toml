@@ -21,7 +21,8 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "pandas>=2.0",
+    "pandas>=2.0,<3.0",
+    "pyarrow>=14.0",
     "numpy>=1.26",
     "pyyaml>=6.0",
     "openpyxl>=3.1",
