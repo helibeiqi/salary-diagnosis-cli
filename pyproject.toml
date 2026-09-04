@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "salary-diagnosis-cli"
-version = "0.2.1"
+version = "0.2.2"
 description = "面向 HR 的薪酬诊断 CLI：带宽设计 / 红绿圈诊断 / 市场对标 / 调薪模拟 / 固浮比 / 岗位评估，全链路确定性计算，支持本地部署（薪资数据不出内网）"
 readme = "README.md"
 requires-python = ">=3.11"

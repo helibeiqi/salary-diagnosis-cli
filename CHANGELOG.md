@@ -3,6 +3,20 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.2] — 2026-09-04
+
+### 新增
+- **`--demo` 一键演示**（ROADMAP P2「CLI 易用性」）：`python run_agent.py --demo`
+  零交互跑通完整诊断链——
+  - 数据源固定为 `data/sample_salary.csv` 合成模拟数据（synthetic 分级，
+    报告渲染中性横幅、不触发真实数据护栏，外发 / 投屏零风险）；
+  - 固定参数：预算 5% · 策略 A（平均分配）· 海氏岗位评估 · 自动映射；
+  - 样例缺失时自动调用 `mock_data.py` 按固定种子重新生成
+    （实测产出与仓库基线逐字节一致，可复现）。
+
+### 验证
+- 本地实测：`--demo` 9/9 步成功，报告 + 5 张图表落盘；pytest 27 passed。
+
 ## [0.2.1] — 2026-09-04
 
 ### 修复

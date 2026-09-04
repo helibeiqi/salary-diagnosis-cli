@@ -3,7 +3,7 @@
 ![CI](https://github.com/helibeiqi/salary-diagnosis-cli/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Release](https://img.shields.io/badge/release-v0.2.1-orange)
+![Release](https://img.shields.io/badge/release-v0.2.2-orange)
 
 > 一个面向 HR 的「AI + 薪酬」作品集项目：上传脱敏工资表 → 自然语言对话 →
 > 模型调度 Python 工具 → 自动完成「数据读取 → 字段识别 → 现状诊断 → 带宽设计
@@ -146,20 +146,28 @@
 > Windows 下命令行建议带 `PYTHONIOENCODING=utf-8` 前缀防中文乱码；
 > macOS / Linux 直接用 `python3` 即可。
 
-### 1) 生成模拟数据（已验证可跑）
+### 1) 一键演示（推荐首选，零交互 · 外发零风险）
 ```bash
 cd salary-diagnosis-cli
+python run_agent.py --demo
+# 自带合成模拟样例（synthetic 分级，与任何真实自然人无关）零交互跑完整链：
+# 预算 5% · 策略 A · 海氏评估 · 自动映射 → report/ 落盘 md+html 报告
+# 样例缺失时自动按固定种子重新生成，产出可复现
+```
+
+### 2) 生成模拟数据（需要指定造数参数时）
+```bash
 python mock_data.py
 # 产出 data/sample_salary.csv（标准表头，150 行）、data/messy_salary.csv（脏数据）
 ```
 
-### 2) 本地离线入口（不经 dsh，适合演示/调试）
+### 3) 本地离线入口（不经 dsh，适合演示/调试）
 ```bash
 python run_agent.py --file data/sample_salary.csv
 # 按对话式流程依次调用 11 个工具，最终在 report/ 落盘报告
 ```
 
-### 3) 接入 dsh 插件（自然语言对话形态，可选）
+### 4) 接入 dsh 插件（自然语言对话形态，可选）
 ```bash
 # 需要先安装 dsh 运行时；插件层为可选增强，不影响第 1、2 步
 dsh plugin add ./src/plugins/comp-tool
