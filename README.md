@@ -1,5 +1,10 @@
 # salary-diagnosis-cli · 薪酬诊断 Agent
 
+![CI](https://github.com/helibeiqi/salary-diagnosis-cli/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Release](https://img.shields.io/badge/release-v0.2.1-orange)
+
 > 一个面向 HR 的「AI + 薪酬」作品集项目：上传脱敏工资表 → 自然语言对话 →
 > 模型调度 Python 工具 → 自动完成「数据读取 → 字段识别 → 现状诊断 → 带宽设计
 > → 市场对标 → 调薪模拟 → 固浮比分析 → 岗位评估 → 报告导出」全链路。
