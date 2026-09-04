@@ -27,6 +27,8 @@ main.py — 本地离线入口（不经过 dsh）
         --mapping-file mapping.json                   # 用人工确认的映射文件
     python run_agent.py --pipeline --file data/ambiguous_salary.csv \
         --budget-pct 3 --strategy B                   # 有歧义列→交互式暂停询问
+    python run_agent.py --demo                        # 一键演示：自带合成模拟样例，
+                                                      # 零交互跑完整链，外发零风险
     python run_agent.py --serve                       # 以 stdio worker 模式运行（供 dsh 插件 spawn）
 """
 
@@ -459,6 +461,49 @@ def cmd_pipeline(file_path: str, budget_pct, as_json: bool,
     return 0 if not failed else 1
 
 
+def cmd_demo(as_json: bool = False) -> int:
+    """
+    --demo 一键演示（ROADMAP P2「CLI 易用性」）：零交互跑通完整诊断链。
+
+    * 数据源固定为 data/sample_salary.csv（合成模拟数据，synthetic 分级）；
+      样例缺失时自动调用根目录 mock_data.py 重新生成（随机种子固定，产出可复现）。
+    * 固定参数：预算 5% · 策略 A（平均分配）· 海氏岗位评估 · 自动映射
+      —— 不触发任何交互式询问，投影仪/录屏场景可直接跑。
+    * 数据分级为 synthetic：报告渲染中性「模拟数据」横幅，不触发真实数据
+      护栏（无红字水印、无 data_guard.md），外发零风险。
+    """
+    import subprocess
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sample = os.path.join(root, "data", "sample_salary.csv")
+
+    if not os.path.exists(sample):
+        mock_script = os.path.join(root, "mock_data.py")
+        print(f"[demo] 未找到 {sample}，正在调用 mock_data.py 生成模拟数据…")
+        r = subprocess.run([sys.executable, mock_script])
+        if r.returncode != 0 or not os.path.exists(sample):
+            print("[demo] 模拟数据生成失败，请手动运行：python mock_data.py")
+            return 1
+
+    print()
+    print("#" * 78)
+    print("# DEMO 一键演示（零交互 · 外发零风险）")
+    print("#   数据源 : data/sample_salary.csv —— 合成模拟数据（synthetic 分级），")
+    print("#            与任何真实自然人无关，报告可安全外发 / 投屏")
+    print("#   固定参数 : 预算 5% · 策略 A（平均分配）· 海氏评估 · 自动映射")
+    print("#" * 78)
+
+    rc = cmd_pipeline(sample, 0.05, as_json,
+                      strategy="A", job_model="hay", auto_confirm=True)
+
+    if rc == 0 and not as_json:
+        print()
+        print("[demo] 完成。报告位于 report/ 目录（md + html 双格式，html 可直接双击打开）。")
+        print("       数据分级为 synthetic：报告带中性「模拟数据」横幅，不触发真实数据")
+        print("       护栏，可安全外发；若要诊断真实工资表，请用 --pipeline --file <路径>。")
+    return rc
+
+
 # =============================================================================
 # 入口
 # =============================================================================
@@ -474,6 +519,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     g.add_argument("--schema", metavar="TOOL", help="打印某工具的 JSON Schema")
     g.add_argument("--call", metavar="TOOL", help="调用某个工具")
     g.add_argument("--pipeline", action="store_true", help="跑完整诊断链")
+    g.add_argument("--demo", action="store_true",
+                   help="一键演示：自带合成模拟样例零交互跑完整链（外发零风险，"
+                        "固定 预算5%/策略A/海氏/自动映射，忽略 --file 等定制参数）")
     g.add_argument("--serve", action="store_true",
                    help="以 stdio worker 模式运行（供 dsh 插件 spawn）")
 
@@ -511,6 +559,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_schema(args.schema)
     if args.call:
         return cmd_call(args.call, args.args, args.json)
+    if args.demo:
+        return cmd_demo(args.json)
     if args.pipeline:
         return cmd_pipeline(args.file, args.budget_pct, args.json, args.strict,
                             args.strategy, args.job_model,

@@ -1,4 +1,9 @@
-# comp-agent-harness · 薪酬诊断 Agent 插件
+# salary-diagnosis-cli · 薪酬诊断 Agent
+
+![CI](https://github.com/helibeiqi/salary-diagnosis-cli/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Release](https://img.shields.io/badge/release-v0.2.2-orange)
 
 > 一个面向 HR 的「AI + 薪酬」作品集项目：上传脱敏工资表 → 自然语言对话 →
 > 模型调度 Python 工具 → 自动完成「数据读取 → 字段识别 → 现状诊断 → 带宽设计
@@ -6,6 +11,14 @@
 >
 > 本仓库是**面试求职作品集**：功能完整、代码健壮、方法论专业、支持本地部署
 > （薪资数据不出内网）、便于向面试官讲解。
+>
+> **两种用法，按需选择**：
+> - `run_agent.py` 本地 CLI 入口 —— **零外部依赖环境**，不需要 dsh、不需要 Ollama
+>   也能跑通确定性流水线（`--pipeline` 模式下模型完全不参与计算）；
+> - dsh 插件层（`src/plugins/comp-tool/`）—— 可选增强，提供自然语言对话形态，
+>   需要已安装 dsh 运行时与本地模型。
+>
+> 项目内部开发名 `comp-agent-harness`，开源仓库名 `salary-diagnosis-cli`，二者指同一项目。
 
 ---
 
@@ -126,27 +139,37 @@
 
 ## 五、如何运行
 
-> 前置：本机已装好 `C:/ProgramData/anaconda3/python.exe`（含 pandas/numpy/
-> openpyxl/plotly），且已装 Ollama 并 `ollama pull deepseek-r1:14b`
-> （或本地 vLLM）。**无需任何云端密钥即可跑通全流程。**
+> **前置**：Python ≥ 3.11，然后 `pip install -r requirements.txt`。
+> 第 1、2 步（确定性流水线）**不需要任何大模型**；第 3 步（对话形态）需要本地
+> Ollama（`ollama pull deepseek-r1:14b`）或本地 vLLM。**全流程无需任何云端密钥。**
+>
+> Windows 下命令行建议带 `PYTHONIOENCODING=utf-8` 前缀防中文乱码；
+> macOS / Linux 直接用 `python3` 即可。
 
-### 1) 生成模拟数据（已验证可跑）
+### 1) 一键演示（推荐首选，零交互 · 外发零风险）
 ```bash
-cd comp-agent-harness
-PYTHONIOENCODING=utf-8 C:/ProgramData/anaconda3/python.exe mock_data.py
+cd salary-diagnosis-cli
+python run_agent.py --demo
+# 自带合成模拟样例（synthetic 分级，与任何真实自然人无关）零交互跑完整链：
+# 预算 5% · 策略 A · 海氏评估 · 自动映射 → report/ 落盘 md+html 报告
+# 样例缺失时自动按固定种子重新生成，产出可复现
+```
+
+### 2) 生成模拟数据（需要指定造数参数时）
+```bash
+python mock_data.py
 # 产出 data/sample_salary.csv（标准表头，150 行）、data/messy_salary.csv（脏数据）
 ```
 
-### 2) 本地离线入口（不经 dsh，适合演示/调试）
+### 3) 本地离线入口（不经 dsh，适合演示/调试）
 ```bash
-PYTHONIOENCODING=utf-8 C:/ProgramData/anaconda3/python.exe run_agent.py \
-    --file data/sample_salary.csv
+python run_agent.py --file data/sample_salary.csv
 # 按对话式流程依次调用 11 个工具，最终在 report/ 落盘报告
 ```
 
-### 3) 接入 dsh 插件（自然语言对话形态）
+### 4) 接入 dsh 插件（自然语言对话形态，可选）
 ```bash
-# TS 插件由 software-architect-2 负责（src/plugins/comp-tool）
+# 需要先安装 dsh 运行时；插件层为可选增强，不影响第 1、2 步
 dsh plugin add ./src/plugins/comp-tool
 dsh --profile comp "帮我看看 data/sample_salary.csv，诊断一下红绿圈"
 ```
@@ -228,8 +251,11 @@ Code Mode，避免模型混淆两种语言。
 
 
 ```
-comp-agent-harness/
+salary-diagnosis-cli/
 ├── config.yaml              # 全局配置（模型/路径/安全/业务默认值）★单一配置入口
+├── config.example.yaml      # 配置模板（python_exe 用通用值，供新机器参考）
+├── requirements.txt         # Python 依赖（pip install -r requirements.txt）
+├── LICENSE                  # MIT 许可证
 ├── .env.example             # 密钥与环境变量样例（密钥绝不进仓库）
 ├── mock_data.py             # 造数脚本（150 行高仿真脱敏数据 + 脏数据变体）
 ├── docs/
