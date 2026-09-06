@@ -47,12 +47,9 @@ import re
 from .timefmt import now_str as _now
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from .errors import (
-    CompToolError,
-    InvalidParameter,
     UpstreamMissing,
     ok_result,
     tool_guard,

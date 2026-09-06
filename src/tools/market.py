@@ -40,9 +40,7 @@ import pandas as pd
 
 from .errors import (
     ColumnMissing,
-    CompToolError,
     InvalidParameter,
-    UpstreamMissing,
     error_result,
     ok_result,
     tool_guard,

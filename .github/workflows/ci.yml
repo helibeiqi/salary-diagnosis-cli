@@ -31,6 +31,11 @@ jobs:
           # pyarrow——parquet 会话持久化的硬依赖，导致 pytest 步骤失败）。
           pip install -r requirements.txt
 
+      - name: Ruff（静态检查：语法错误 / 未定义名 / 未用导入；规则见 pyproject [tool.ruff]）
+        run: |
+          pip install ruff
+          ruff check src/ tests/
+
       - name: Pytest（全量单测：schemas 契约 / meta 契约 / 脱敏往返 / 报告水印 / 影子路由）
         run: python -m pytest tests/ -q
 

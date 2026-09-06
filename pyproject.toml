@@ -42,3 +42,17 @@ packages = ["src", "src.tools"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# ---------------------------------------------------------------------------
+# Ruff 静态检查（CI 门禁，2026-09-06 引入）
+# 选型原则：只开「高信噪比」规则——真错误（E9 语法 / F 逻辑）+ 未用导入，
+# 不开 UP（pyupgrade 风格大迁移无行为收益）、不开 BLE（宽 except 是本项目
+# 边界层的既定设计，见 docs/ARCHITECTURE.md 降级策略）。
+# external：登记「知情压制」的规则码，RUF100 不会误删这些 noqa 标记。
+# ---------------------------------------------------------------------------
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82", "F401", "F811", "RUF100"]
+external = ["BLE001", "E402"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F401"]  # 测试文件允许保留显式导入（可读性优先）

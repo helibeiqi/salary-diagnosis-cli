@@ -31,17 +31,14 @@ D 冻结红圈    ：红圈调薪额 = 0；预算在非红圈员工中按绩效�
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
 
 from .band import classify_cr, generate_band, _timestamp_compact
 from .errors import (
-    ColumnMissing,
-    CompToolError,
     InvalidParameter,
-    UpstreamMissing,
     error_result,
     ok_result,
     tool_guard,
@@ -49,7 +46,6 @@ from .errors import (
 from .loader import require_columns, require_session
 from .timefmt import now_str as _now
 from .schemas import (
-    DEFAULT_MIDPOINT_DIFF,
     GREEN_CIRCLE_CR,
     PERF_WEIGHTS,
     RED_CIRCLE_CR,

@@ -55,7 +55,7 @@ import re
 import sys
 import traceback
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 # 让本模块既能作为 tools 包导入，也能独立运行
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -378,10 +378,10 @@ def _resolve_session(session_id: Any, session: Any = None,
         # 单例尊重 reset_store()/自定义 STATE_DIR，避免「单例指向临时目录、报告却去
         # 默认目录找会话」造成的空报告。
         try:
-            from .session import get_store as _get_store  # noqa: F401
+            from .session import get_store as _get_store
         except Exception:  # noqa: BLE001
             try:
-                from src.tools.session import get_store as _get_store  # noqa: F401
+                from src.tools.session import get_store as _get_store
             except Exception:  # noqa: BLE001
                 _get_store = None  # type: ignore
         if _get_store is not None:

@@ -47,8 +47,6 @@ jobeval.py — 岗位价值评估（Job Evaluation）与职级校验
 
 from __future__ import annotations
 
-import os
-from collections import Counter
 from .timefmt import now_str as _now
 from typing import Any, Dict, List, Optional
 
@@ -56,7 +54,6 @@ import numpy as np
 import pandas as pd
 
 from .errors import (
-    CompToolError,
     InvalidParameter,
     UpstreamMissing,
     ok_result,

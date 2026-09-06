@@ -49,10 +49,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-import numpy as np  # ndarray 序列化守卫用（pandas 已依赖，无额外安装成本）
 
 # 本文件**刻意不 import** loader/band/diagnose/... —— 全部懒加载，见模块 docstring
-from .errors import CompToolError, error_payload
+from .errors import CompToolError
 
 CONTRACT_VERSION = "1.0.0"
 
