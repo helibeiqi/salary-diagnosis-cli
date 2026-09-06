@@ -433,7 +433,9 @@ def cmd_pipeline(file_path: str, budget_pct, as_json: bool,
 
     sid = {"session_id": session_id}
     plan: List[tuple] = [
-        ("generate_band", {**sid, "mode": "optimize"}),
+        # 口径前提（tests/verify_golden.py「口径前提 1」）：判定前一律不取整（K3），
+        # round_to=0 与金标准对账脚本完全一致；取整只允许发生在展示层。
+        ("generate_band", {**sid, "mode": "optimize", "round_to": 0}),
         ("analyze_current_state", sid),
         ("market_benchmark", sid),
         # strategy / job_model / budget_pct 已由 _resolve_required_params 收紧为最终值，

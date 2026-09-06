@@ -243,6 +243,17 @@ def _view_diagnose(sec: Dict[str, Any], df, payroll: Optional[float]) -> Dict[st
 
     dist = _level_distribution(df)
 
+    # 行级 CR 序列：报告 3.2 节 cr_distribution 图的数据源。diagnose 的 meta
+    # 只存聚合值（不存行级明细），所以这里从会话 df 的 cr 列现取——
+    # 缺列（诊断未跑 / 老会话）时保持缺省，报告按既有逻辑跳过该图。
+    cr_values: List[float] = []
+    if df is not None:
+        cr_col = _pick_col(df, _CR_COL_CANDIDATES)
+        if cr_col:
+            cr_values = [
+                float(x) for x in df[cr_col].astype("float64").dropna()
+            ]
+
     return {
         **sec,  # 原字段全部保留，便于排查与未来扩展
         "summary": {
@@ -269,6 +280,7 @@ def _view_diagnose(sec: Dict[str, Any], df, payroll: Optional[float]) -> Dict[st
             "green_cr": sec.get("green_cr", GREEN_CIRCLE_CR),
         },
         "cr_stats": cr,
+        "cr_values": cr_values,  # 行级 CR（report §3.2 图用）；meta 不存明细，故只能在此处取
         "cost": cost,
         # ⚠️ 覆盖原始 by_level（它是红/绿/合理人数），换成报告要的薪酬分布
         "by_level": dist,
@@ -434,7 +446,8 @@ def _view_market(sec: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _view_increase(sec: Dict[str, Any], diag_view: Dict[str, Any]) -> Dict[str, Any]:
+def _view_increase(sec: Dict[str, Any], diag_view: Dict[str, Any],
+                   df=None) -> Dict[str, Any]:
     """increase → {budget, budget_pct, strategies[], recommended, before/after}
 
     ⚠️ 诚实边界：上游 `simulate_increase` 一次只算**一个**策略（调用方指定），
@@ -485,6 +498,23 @@ def _view_increase(sec: Dict[str, Any], diag_view: Dict[str, Any]) -> Dict[str, 
         "cons": "调薪后红圈数可能上升（低于中位者补涨更快），需配套沟通话术。",
     }] if strategy else []
 
+    # 调薪前后对比：报告 5.3 的 cr_before_after 图需要**行级 CR 序列**
+    # （调薪前 = df.cr，调薪后 = df.new_cr，均由上游工具 write_back 落盘）。
+    # 拿不到行级序列时才退回计数 dict——此时图表会降级，但报告不出错。
+    # 注意顺序：increase 的 before 依赖 diagnose 的红绿圈计数
+    def _cr_series(col: str):
+        if df is None or col not in getattr(df, "columns", []):
+            return None
+        s = df[col].astype("float64").dropna()
+        s = s[s > 0]  # 排除无法计算 CR 的占位值
+        return [float(x) for x in s] if len(s) else None
+
+    _cr_b = _cr_series("cr")
+    _cr_a = _cr_series("new_cr")
+    _before_counts = {
+        "red": _d(circles.get("red")).get("count"),
+        "green": _d(circles.get("green")).get("count"),
+    }
     return {
         **sec,
         "budget": budget,
@@ -500,16 +530,10 @@ def _view_increase(sec: Dict[str, Any], diag_view: Dict[str, Any]) -> Dict[str, 
             "simulate_increase 后再生成报告 —— 报告层不会替未执行的方案编造数字。"
         ),
         # 调薪前后对比：after 取主情景（rebase_band=False），before 取诊断口径
-        "before": {
-            "red": _d(circles.get("red")).get("count"),
-            "green": _d(circles.get("green")).get("count"),
-        },
-        "cr_before": {
-            "red": _d(circles.get("red")).get("count"),
-            "green": _d(circles.get("green")).get("count"),
-        },
-        "after": after0,
-        "cr_after": after0,
+        "before": _cr_b if _cr_b else _before_counts,
+        "cr_before": _cr_b if _cr_b else _before_counts,
+        "after": _cr_a if _cr_a else after0,
+        "cr_after": _cr_a if _cr_a else after0,
         "scenario_rebase": {
             "rebase_band": s1.get("rebase_band"),
             "red": after1.get("red"),
@@ -593,7 +617,7 @@ def build_view(session_id: Optional[str], meta: Optional[Dict[str, Any]]) -> Dic
         out[meta_key("jobeval")] = _view_jobeval(_d(src.get("jobeval")))
     if src.get(meta_key("increase")):
         out[meta_key("increase")] = _view_increase(
-            _d(src.get("increase")), _d(out.get("diagnose")))
+            _d(src.get("increase")), _d(out.get("diagnose")), df)
 
     # paymix 的键与 report 期望天然一致（by_family / curves / principle），
     # 无需适配；此处只补一个空 warnings，保持各分区形状统一。
