@@ -16,7 +16,7 @@
 > - `run_agent.py` 本地 CLI 入口 —— **零外部依赖环境**，不需要 dsh、不需要 Ollama
 >   也能跑通确定性流水线（`--pipeline` 模式下模型完全不参与计算）；
 > - dsh 插件层（`src/plugins/comp-tool/`）—— 可选增强，提供自然语言对话形态，
->   需要已安装 dsh 运行时与本地模型。
+>   需要已安装 dsh 运行时；模型接入基于 OpenAI 兼容接口，本地 / 云端、任意模型均可配置（见 `config.yaml`）。
 >
 > 项目内部开发名 `comp-agent-harness`，开源仓库名 `salary-diagnosis-cli`，二者指同一项目。
 
@@ -197,8 +197,10 @@ python run_agent.py --demo
 ## 五、如何运行
 
 > **前置**：Python ≥ 3.11，然后 `pip install -r requirements.txt`。
-> 第 1、2 步（确定性流水线）**不需要任何大模型**；第 3 步（对话形态）需要本地
-> Ollama（`ollama pull deepseek-r1:14b`）或本地 vLLM。**全流程无需任何云端密钥。**
+> 第 1、2 步（确定性流水线）**不需要任何大模型**；第 3 步（对话形态）需要一个
+> 大模型：基于 **OpenAI 兼容接口**接入——本地 Ollama / vLLM 中的**任意模型**，
+> 或任何 OpenAI 兼容云端 API，在 `config.yaml` 增加一个 provider 条目即可切换，
+> **无需改代码**。默认 provider 为本地 Ollama，且**不回退云端**。
 >
 > **Web UI（可选）**：`pip install -e ".[web]"`（或 `pip install streamlit`）后，
 > 即可用浏览器跑诊断，见下方第 5 步。Web UI 与 CLI 共用同一套底层计算代码。
@@ -238,9 +240,9 @@ dsh --profile comp "帮我看看 data/sample_salary.csv，诊断一下红绿圈"
 > 默认 provider 在 `config.yaml` 中为 `ollama-local`，且 `models.fallback.enabled:false`
 > —— 本地模型不可用时**不会**偷偷切到云端，宁可报错提示你启动 Ollama。
 
-### 5) Web UI（零命令行，适合分享给同事）
+### 5) Web UI（零命令行，浏览器直接用）
 
-不想让同事记命令行参数？`app.py` 把底层诊断链包成网页界面，全部计算在本机完成，
+不想记命令行参数？`app.py` 把底层诊断链包成网页界面，全部计算在本机完成，
 **薪酬数据不出内网**：
 
 ```bash
