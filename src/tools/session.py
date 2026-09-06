@@ -52,6 +52,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from .timefmt import now_str as _now
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -88,11 +89,6 @@ _FORBIDDEN_META_KEYS = {
 _MAX_LIST_LEN = 50
 #: meta 中单个字符串的最大长度（超过即截断）
 _MAX_STR_LEN = 2000
-
-
-def _now() -> str:
-    """当前时间的统一格式串（本地时区，秒级精度，便于人读日志）。"""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _timestamp_compact() -> str:

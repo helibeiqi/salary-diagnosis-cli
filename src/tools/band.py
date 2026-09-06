@@ -101,6 +101,7 @@ from __future__ import annotations
 import math
 import os
 from datetime import datetime
+from .timefmt import now_str as _now
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -153,10 +154,6 @@ _SOURCE_FIELD = {
 
 #: 重叠度的经验合理区间（业务经验值，用于给出文字评价）
 OVERLAP_REASONABLE: Tuple[float, float] = (0.30, 0.50)
-
-
-def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _timestamp_compact() -> str:

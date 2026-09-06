@@ -54,6 +54,7 @@ import os
 import re
 import secrets
 from datetime import datetime
+from .timefmt import now_str as _now
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -169,11 +170,6 @@ _TENURE_BINS: Sequence[Tuple[float, float, str]] = (
     (0.0, 1.0, "0-1年"), (1.0, 3.0, "1-3年"), (3.0, 5.0, "3-5年"),
     (5.0, 10.0, "5-10年"), (10.0, 999.0, "10年以上"),
 )
-
-
-def _now() -> str:
-    """统一时间格式。"""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _timestamp_compact() -> str:

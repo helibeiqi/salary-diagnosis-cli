@@ -36,6 +36,7 @@ from .band import classify_cr, summarize_cr
 from .errors import UpstreamMissing, error_result, ok_result, tool_guard
 from .loader import require_columns, require_session
 from .session import get_store
+from .timefmt import now_str as _now
 from ._summary import build_summary_md
 
 
@@ -115,8 +116,8 @@ def analyze_current_state(
                            annual_months=annual_months)
 
     # ---- 5) 写回会话（列 + meta）--------------------------------------------
-    added_cols = ["band_min", "band_mid", "band_max", "cr", "penetration", "flag", "flag_reason"]
-    added_cols = [c for c in added_cols if c not in df.columns or True]  # 列已存在也回写覆盖
+    # 回写列：band_min/band_mid/band_max/cr/penetration/flag/flag_reason
+    # （列已存在时 save_df 整表覆盖，语义即「重新诊断以最新结果为准」）。
     if write_back:
         try:
             # classify_cr 返回的 enriched 已是「原 df 全部列 + 新增诊断列」，
@@ -165,12 +166,6 @@ def analyze_current_state(
         meta_written="diagnose" if write_back else None,
         hint="现状诊断完成。下一步：market_benchmark 做市场对标，或 simulate_increase 做调薪模拟。",
     )
-
-
-def _now() -> str:
-    """返回人类可读时间戳（与 band/loader 同款，避免重复依赖）。"""
-    from datetime import datetime
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 # -----------------------------------------------------------------------------

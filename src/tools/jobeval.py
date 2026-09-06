@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import os
 from collections import Counter
-from datetime import datetime
+from .timefmt import now_str as _now
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -76,10 +76,6 @@ from .session import get_store
 # 现状 level 与建议 level 之间的「错配」程度排序（供 meta 只存最显著的样例）
 _LEVEL_RANK = {lv: i for i, lv in enumerate(
     ["P1", "P2", "P3", "P4", "P5", "P6", "M1", "M2", "M3"])}
-
-
-def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def w_to_level(w: float, model: str = "hay") -> str:

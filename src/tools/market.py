@@ -54,6 +54,7 @@ from .schemas import (
     infer_job_family,
 )
 from .session import get_store
+from .timefmt import now_str as _now
 from ._summary import build_market_summary_md
 
 # -----------------------------------------------------------------------------
@@ -404,8 +405,3 @@ def _pick_from_table(table: Dict[str, Dict[str, float]],
     pct = DEFAULT_MARKET_STRATEGY.get(family, "P50")
     return row.get(pct.lower())
 
-
-def _now() -> str:
-    """返回人类可读时间戳（与 band/loader 同款）。"""
-    from datetime import datetime
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")

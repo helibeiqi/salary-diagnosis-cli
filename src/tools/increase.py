@@ -47,6 +47,7 @@ from .errors import (
     tool_guard,
 )
 from .loader import require_columns, require_session
+from .timefmt import now_str as _now
 from .schemas import (
     DEFAULT_MIDPOINT_DIFF,
     GREEN_CIRCLE_CR,
@@ -481,7 +482,3 @@ def _export_detail(out: pd.DataFrame, strategy: str) -> Optional[str]:
     except Exception:  # noqa: BLE001
         return None
 
-
-def _now() -> str:
-    from datetime import datetime
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")

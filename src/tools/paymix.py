@@ -44,7 +44,7 @@ PRD 硬性要求报告里必须出现「固浮比方法论前提与风险」一�
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from .timefmt import now_str as _now
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -75,10 +75,6 @@ PAYMIX_PRINCIPLE = (
 _COLLABORATIVE_FAMILIES = ("技术", "职能", "管理", "操作")
 # 激励曲线的达成率采样点（0=未达标只拿固定，1.0=100%达成，1.5=超额150%）
 _ACHIEVEMENT_POINTS = [0.0, 0.5, 1.0, 1.5]
-
-
-def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _parse_mix(text: Any) -> Optional[Tuple[int, int]]:
