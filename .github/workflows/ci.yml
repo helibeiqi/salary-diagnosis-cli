@@ -36,7 +36,7 @@ jobs:
           pip install ruff
           ruff check src/ tests/
 
-      - name: Pytest（全量单测：schemas 契约 / meta 契约 / 脱敏往返 / 报告水印 / 影子路由）
+      - name: Pytest（全量单测：schemas 契约 / meta 契约 / 脱敏往返 / 报告水印）
         run: python -m pytest tests/ -q
 
       - name: Golden standard（金标准数值口径对账，数值漂移唯一防线）
