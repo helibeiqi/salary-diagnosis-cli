@@ -1,9 +1,16 @@
 # comp-agent-harness 架构设计文档
 
+> ⚠️ **本文是「早期插件原型」阶段的架构记录（历史资料）**。
+> 当前架构已演化为「编排层可插拔」——MCP Server / OpenAI Agents SDK / 本地 CLI 三种接法
+> 共用同一套确定性计算内核，**不绑定任何 AI 平台**；**当前架构以仓库根目录
+> `README.md` 为准**，本文仅作设计史料保留。
+> 文中残留的源码路径与包名引用（如 `dsh-tools/lib/index.js`、`@deepseek-ai/dsh-tools`）
+> 是当时契约复核的证据出处，属历史事实，保留以维持可追溯性。
+
 > 版本：v1.0 ｜ 日期：2026-08-30 ｜ 架构师：高见远（software-architect）
 > 定位：本文件是**工程师的实现合同**。接口规格精确到字段级，任务分解可直接派工。
 > 前置阅读：`BRIEFING.md`、`src/tools/schemas.py`、`mock_data.py`
-> 纪律：所有结构性 dsh 契约均已回读源码复核，凡与 BRIEFING 冲突处以源码为准并显式标注。
+> 纪律：所有结构性契约均已回读源码复核，凡与 BRIEFING 冲突处以源码为准并显式标注。
 
 ---
 
@@ -12,7 +19,7 @@
 | 项 | 结论 |
 |---|---|
 | **BRIEFING 修正 1** | §2.2「推荐优先使用官方 `defineTool()`」**需加限定条件**：官方 `defineTool` 的 `parameters` 走的是**扁平 DSL**，不能直接吃顶层 JSON Schema。详见 §2.2 |
-| **BRIEFING 修正 2** | §2.3「PTC 不能依赖 dsh Code Mode」**部分不成立**：`dsh-code-runtime-worker-thread` 已由 web bundle 默认注册，官方 Code Mode **现成可用**，只是语言为 TypeScript。缺的只是「报告 `language:'python'` 的运行时后端」。详见 §2.3 |
+| **BRIEFING 修正 2** | §2.3「PTC 不能依赖 Code Mode」**部分不成立**：`官方 TS 运行时后端` 已由 web bundle 默认注册，官方 Code Mode **现成可用**，只是语言为 TypeScript。缺的只是「报告 `language:'python'` 的运行时后端」。详见 §2.3 |
 | **BRIEFING 修正 3** | §4.4 红绿圈双条件判定的**实际生效门槛依赖带宽幅度**，临界值 `s*=0.50`。这是一个会被 HR 追问的细节，已给出精确公式。详见 §6.2 |
 | **BRIEFING 修正 4** | §2.2 未提 `output.schema` 的**受支持关键字白名单**（仅 8 个），`minimum/maximum/pattern/minItems` 等会直接抛 `JsonSchemaError`。详见 §2.4 |
 | **核心决策 1** | Python 计算核心 + TS 薄适配插件，桥接用**持久 stdio worker + Content-Length 分帧**（不是每次 spawn；v1.0 曾定 NDJSON，T-F 阶段改为 Content-Length，见 §5.2.1） |
@@ -33,13 +40,13 @@ flowchart TB
         M3["本地 vLLM / deepseek-r1"]
     end
 
-    subgraph RT["dsh 运行时（Cordis 插件树）"]
+    subgraph RT[" 运行时（Cordis 插件树）"]
         SP["systemPrompt 组装"]
-        TR["ctx.tools 注册表<br/>dsh-tools v0.1.1-rc.2"]
+        TR["ctx.tools 注册表<br/>工具注册框架 v0.1.1-rc.2"]
         CR["ctx.codeRuntime<br/>worker-thread（可选 L1）"]
     end
 
-    subgraph PL["TS 插件层 · dsh-comp-tool（薄适配，零业务计算）"]
+    subgraph PL["TS 插件层 · comp-tool 插件（薄适配，零业务计算）"]
         IDX["index.ts<br/>name / inject / apply"]
         SVC["service.ts<br/>11 个 defineTool 注册"]
         BRG["bridge.ts<br/>持久 worker 生命周期管理"]
@@ -64,13 +71,13 @@ flowchart TB
     end
 
     subgraph OUT["产物层（本地，不进模型上下文）"]
-        A1["assets/*.html  图表"]
-        A2["assets/*.csv   明细表"]
+        A1["assets/*.html 图表"]
+        A2["assets/*.csv 明细表"]
         A3["report/*.md|html 报告"]
-        A4[".state/  会话缓存(gitignore)"]
+        A4[".state/ 会话缓存(gitignore)"]
     end
 
-    LOC["main.py<br/>本地离线入口（不经 dsh）"]
+    LOC["main.py<br/>本地离线入口（不经 ）"]
 
     ML -->|Function Calling| RT
     RT --> TR
@@ -139,7 +146,7 @@ sequenceDiagram
 
 ---
 
-## 2. dsh 契约复核（源码驱动，含 BRIEFING 修正）
+## 2. 契约复核（源码驱动，含 BRIEFING 修正）
 
 复核对象与结论：
 
@@ -151,7 +158,7 @@ sequenceDiagram
 | Code Mode 可用性 | `dsh-tools/README.zh.md:16` + `dsh-web-app/cordis.patch.yml:47-49` | **修正 2**，见 §2.3 |
 | 输出 schema 子集 | `dsh-tools/lib/index.js:32-41,161-205` | **修正 4**，见 §2.4 |
 | 无损 JSON 要求 | `dsh-excel-kit/src/service.ts:138-150` | **新增硬约束**，见 §2.5 |
-| Python 运行时后端 | `@deepseek-ai/` 目录列举 | 只有 `dsh-code-runtime` + `dsh-code-runtime-worker-thread`，**无 `dsh-code-runtime-python`** — BRIEFING §2.3 这条属实 |
+| Python 运行时后端 | `@deepseek-ai/` 目录列举 | 只有 `官方 Code Mode 运行时` + `官方 TS 运行时后端`，**无 `官方 Python 运行时后端`** — BRIEFING §2.3 这条属实 |
 | 依赖可解析性 | `profiles/node_modules/@deepseek-ai/dsh-tools` v0.1.1-rc.2 | **存在且与运行时同版本**，`defineTool` 可 require |
 
 ### 2.1 插件入口（沿用金标准，无修正）
@@ -160,7 +167,7 @@ sequenceDiagram
 // src/plugins/comp-tool/src/index.ts
 import { CompToolService, PluginContext } from './service';
 
-export const name = 'dsh-comp-tool';
+export const name = 'comp-tool 插件';
 export const inject = ['tools'] as const;
 
 export function apply(
@@ -171,22 +178,22 @@ export function apply(
 }
 ```
 
-> ⚠️ 与 `dsh-excel-kit` 一致：**绝不 `export const Config`**（非 schemastery 对象会使 cordis loader 启动崩溃）。
+> ⚠️ 与 `同生态参考插件` 一致：**绝不 `export const Config`**（非 schemastery 对象会使 cordis loader 启动崩溃）。
 
 ### 2.2 【修正 1】`defineTool` 的 `parameters` 必须走扁平 DSL
 
-**BRIEFING §2.2 原文**："`dsh-tools` 另有官方 `defineTool()` 辅助函数……推荐优先使用"。
+**BRIEFING §2.2 原文**："`工具注册框架` 另有官方 `defineTool()` 辅助函数……推荐优先使用"。
 **源码事实**（`dsh-tools/lib/index.js:800-809, 836-845`）：
 
 ```js
 function parameterSchemaSpecToJsonSchema(spec) {
-  const compiled = compilePropertyMap(spec, 'parameters');      // ← 把 spec 的**每个顶层键**当作参数名
+  const compiled = compilePropertyMap(spec, 'parameters'); // ← 把 spec 的**每个顶层键**当作参数名
   const schema = { type:'object', properties: compiled.properties, ... };
   assertSupportedJsonSchema(schema);
   return schema;
 }
 function defineTool(options) {
-  const parameters = parameterSchemaSpecToJsonSchema(options.parameters);   // ← 强制转换
+  const parameters = parameterSchemaSpecToJsonSchema(options.parameters); // ← 强制转换
   ...
 }
 ```
@@ -202,13 +209,13 @@ function defineTool(options) {
 
 已验证 `profiles/node_modules/@deepseek-ai/dsh-tools@0.1.1-rc.2` 存在且与运行时同版本，`defineTool` 可 require（实测 `typeof defineTool === 'function'`）。
 
-> **降级预案（工程师 C 必须实现）**：`service.ts` 顶部做一次探测，`require('@deepseek-ai/dsh-tools')` 失败时回退到**本地 identity `defineTool` + 顶层 JSON Schema**（即方案 B）。**验收点**：`dsh --profile headless "列出你能用的薪酬工具"` 能看到 11 个工具即通过；若启动报 `Cannot read properties of undefined` 或参数校验异常，切方案 B 并重验。
+> **降级预案（工程师 C 必须实现）**：`service.ts` 顶部做一次探测，`require('@deepseek-ai/dsh-tools')` 失败时回退到**本地 identity `defineTool` + 顶层 JSON Schema**（即方案 B）。**验收点**：` --profile headless "列出你能用的薪酬工具"` 能看到 11 个工具即通过；若启动报 `Cannot read properties of undefined` 或参数校验异常，切方案 B 并重验。
 
 **DSL 速查**（`dsh-tools/README.zh.md:95`）：支持 `string` / `number` / `integer` / `boolean` / `null` / `array` / `object` / `json` / `oneOf`；`required: true` 写在**单个属性上**；显式 `object` 必须声明 `additionalProperties`；`array` 需要 `items`。
 
 ### 2.3 【修正 2】PTC 现状与裁决
 
-**BRIEFING §2.3 原文**："本项目的 PTC **不能依赖 dsh Code Mode**"。
+**BRIEFING §2.3 原文**："本项目的 PTC **不能依赖 Code Mode**"。
 **源码事实**：
 
 1. `dsh-web-app/cordis.patch.yml:47-49` 已默认注册 TypeScript 运行时：
@@ -217,13 +224,13 @@ function defineTool(options) {
        - id: code-runtime
          name: '@deepseek-ai/dsh-code-runtime-worker-thread'
    ```
-2. `dsh-tools/README.zh.md:16` 原文：**「Python 渲染器内置**，驱动任何报告 `language:'python'` 的运行时（第一方 `dsh-code-runtime-python` 后端**另行交付**）」。
+2. `dsh-tools/README.zh.md:16` 原文：**「Python 渲染器内置**，驱动任何报告 `language:'python'` 的运行时（第一方 `官方 Python 运行时后端` 后端**另行交付**）」。
    ⇒ 即 **SDK 渲染器（生成代码提示词的那一半）内置且支持 Python**，缺的是**执行代码的运行时后端**。
 3. `dsh-tools/lib/index.js` 实际导出 `jsonSchemaToPy` / `renderToolsSdk` / `py-types.js` —— 佐证 Python SDK 渲染器确实内置。
 4. `mode ?? "native"`（`lib/index.js`）⇒ 默认 `native`，Code Mode 需显式开启。
 5. Node v22.22.2 的 `module.stripTypeScriptTypes` 存在（实测）⇒ worker-thread 的类型剥离链路可用。
 
-⇒ **精确结论**：**官方 Code Mode 完全可用，但程序语言只能是 TypeScript**（因为只有 TS 运行时后端）。BRIEFING「不能依赖 dsh Code Mode」的说法过强；准确表述是「不能用 dsh Code Mode 跑 Python」。
+⇒ **精确结论**：**官方 Code Mode 完全可用，但程序语言只能是 TypeScript**（因为只有 TS 运行时后端）。BRIEFING「不能依赖 Code Mode」的说法过强；准确表述是「不能用 Code Mode 跑 Python」。
 
 **裁决：双路径，默认走自建 L2。**
 
@@ -240,7 +247,7 @@ function defineTool(options) {
 
 **契约同构要求（工程师 B 必须遵守）**：`run_comp_code` 的入参/出参**刻意与官方 `run_code` 对齐**，以便 README 里可以这样表述——
 
-> 本项目自建的 `run_comp_code` 与 dsh 官方 Code Mode 的 `run_code` 传输契约同构（`{code, description}` → `{logs, result}`，同样「只有 print/return 的内容进入模型上下文」，同样每次运行全新状态）。差异仅在于执行语言为 Python、以及执行环境为一次性子进程而非 worker thread。官方 `dsh-code-runtime-python` 后端交付后，可在不动插件层的前提下替换执行后端。
+> 本项目自建的 `run_comp_code` 与 官方 Code Mode 的 `run_code` 传输契约同构（`{code, description}` → `{logs, result}`，同样「只有 print/return 的内容进入模型上下文」，同样每次运行全新状态）。差异仅在于执行语言为 Python、以及执行环境为一次性子进程而非 worker thread。官方 `官方 Python 运行时后端` 后端交付后，可在不动插件层的前提下替换执行后端。
 
 ### 2.4 【修正 4】`output.schema` 的受支持关键字白名单
 
@@ -271,7 +278,7 @@ ANNOTATION_KEYWORDS = { description, title, default, examples }
 ```python
 def to_lossless(obj):
     """出口统一规整：NaN/Inf → None，None 保留，numpy 标量 → 原生标量。
-    依据：dsh 注册表在呈现前校验『无损 JSON』，NaN 会被 JSON.stringify 静默变 null
+    依据： 注册表在呈现前校验『无损 JSON』，NaN 会被 JSON.stringify 静默变 null
     导致 round-trip 不等而被判 invalid output（见 dsh-excel-kit/src/service.ts:138）。"""
 ```
 
@@ -287,9 +294,9 @@ pandas 处处是 NaN，**这是本项目最容易翻车的一处**，QA 必须�
 | 并发安全约定 | 「选择并发的主体不得改变父级拥有的状态；共享状态竞态必须具有交换性，否则必须安全拒绝」 | `README.zh.md:103` |
 | `timeoutMs` | **仅声明，注册表绝不强制执行**，需自建 | `README.zh.md:101,197` |
 | `spillStore` | 未在 `inject` 声明的服务**必须**用 `ctx.get('spillStore')` 取，直接读属性会抛 | `service.ts:167-171` |
-| 插件注册方式 | bundle 落位 `profiles/node_modules/<pkgname>/`，`package.json` 含 `"dsh":{"bundle":{"patch":"./cordis.patch.yml"}}`，用 `- insert:` 注册；再追加到 `profiles/web/package.json` 的 `dsh.profile.bundles` | `dsh-bundle-deploy` skill |
-| 硬闸门 | `--dump-config` 通过 **≠** 真能启动；必须真跑 `--profile headless` | `dsh-bundle-deploy` skill |
-| 编码坑 | 无 BOM 的 UTF-8；PowerShell `Set-Content -Encoding utf8` 带 BOM 会致 dsh 启动崩溃 | 同上 |
+| 插件注册方式 | bundle 落位 `profiles/node_modules/<pkgname>/`，`package.json` 含 `"":{"bundle":{"patch":"./cordis.patch.yml"}}`，用 `- insert:` 注册；再追加到 `profiles/web/package.json` 的 `` | `` skill |
+| 硬闸门 | `--dump-config` 通过 **≠** 真能启动；必须真跑 `--profile headless` | `` skill |
+| 编码坑 | 无 BOM 的 UTF-8；PowerShell `Set-Content -Encoding utf8` 带 BOM 会致 启动崩溃 | 同上 |
 
 ---
 
@@ -297,46 +304,46 @@ pandas 处处是 NaN，**这是本项目最容易翻车的一处**，QA 必须�
 
 ```
 comp-agent-harness/
-├── config.yaml                        ★新  模型提供方 / 路径 / 安全开关 / 业务默认值
-├── main.py                            ★新  本地离线入口（不经 dsh，QA 与面试演示主力）
-├── mock_data.py                       【已存在·勿动】造数脚本
-├── README.md                          ★新  T6
-├── data/                              【已存在】sample_salary.csv / messy_salary.csv / sample_salary.xlsx
-├── report/                            【已存在】报告产物
-├── assets/                            【已存在】图表 HTML / PNG、明细 CSV
-├── .state/                            【已存在】会话缓存（.gitignore，永不进仓库）
+├── config.yaml ★新 模型提供方 / 路径 / 安全开关 / 业务默认值
+├── main.py ★新 本地离线入口（不经 ，QA 与面试演示主力）
+├── mock_data.py 【已存在·勿动】造数脚本
+├── README.md ★新 T6
+├── data/ 【已存在】sample_salary.csv / messy_salary.csv / sample_salary.xlsx
+├── report/ 【已存在】报告产物
+├── assets/ 【已存在】图表 HTML / PNG、明细 CSV
+├── .state/ 【已存在】会话缓存（.gitignore，永不进仓库）
 ├── docs/
-│   └── ARCHITECTURE.md                【本文件】
+│ └── ARCHITECTURE.md 【本文件】
 └── src/
-    ├── tools/                         # ============ Python 计算核心 ============
-    │   ├── schemas.py                 【已存在·勿动】18 标准字段 + 别名词典 + 业务参数字典（单一真理源）
-    │   ├── metrics.py                 ★新  【A】全部数值口径的唯一实现（见 §6）
-    │   ├── errors.py                  ★新  【B】统一错误码 / ToolError / to_lossless
-    │   ├── session.py                 ★新  【B】SessionState / artifacts 句柄 / 持久化
-    │   ├── registry.py                ★新  【B】工具名 → handler 映射（server 与 sandbox 共用）
-    │   ├── loader.py                  ★新  【A】读文件 / 清洗 / 映射 / 标准化
-    │   ├── diagnose.py                ★新  【A】CR / 渗透率 / 红绿圈 / 分布统计
-    │   ├── band.py                    ★新  【A】带宽生成 + 相邻职级重叠度
-    │   ├── market.py                  ★新  【A】市场对标
-    │   ├── increase.py                ★新  【B】调薪模拟（含预算守恒求解）
-    │   ├── paymix.py                  ★新  【B】固浮比模拟
-    │   ├── jobeval.py                 ★新  【B】海氏 / 美世打分与职级建议
-    │   ├── charts.py                  ★新  【B】plotly 图表（中文字体 + kaleido 降级）
-    │   ├── report.py                  ★新  【B】Markdown + HTML 报告生成
-    │   ├── sandbox.py                 ★新  【B】PTC-L2 沙箱（AST 预检 + 受限命名空间 + 子进程隔离）
-    │   └── server.py                  ★新  【B】stdio Content-Length 分帧 + JSON-RPC 2.0 分发
-    ├── plugins/comp-tool/             # ============ TS Cordis 插件 ============
-    │   ├── package.json               ★新  【C】含 dsh.bundle.patch
-    │   ├── tsconfig.json              ★新  【C】
-    │   ├── cordis.patch.yml           ★新  【C】无 BOM；只用 - insert:
-    │   └── src/
-    │       ├── index.ts               【已存在目录】name / inject / apply
-    │       ├── service.ts             ★新  【C】11 个工具的 defineTool 注册 + 降级探测
-    │       ├── bridge.ts              ★新  【C】持久 worker 生命周期（启动/心跳/超时/重启）
-    │       ├── envelope.ts            ★新  【C】泛型 output.schema + render + presentationMeta
-    │       └── schemas.ts             ★新  【C】10 份 parameters DSL
+    ├── tools/ # ============ Python 计算核心 ============
+    │ ├── schemas.py 【已存在·勿动】18 标准字段 + 别名词典 + 业务参数字典（单一真理源）
+    │ ├── metrics.py ★新 【A】全部数值口径的唯一实现（见 §6）
+    │ ├── errors.py ★新 【B】统一错误码 / ToolError / to_lossless
+    │ ├── session.py ★新 【B】SessionState / artifacts 句柄 / 持久化
+    │ ├── registry.py ★新 【B】工具名 → handler 映射（server 与 sandbox 共用）
+    │ ├── loader.py ★新 【A】读文件 / 清洗 / 映射 / 标准化
+    │ ├── diagnose.py ★新 【A】CR / 渗透率 / 红绿圈 / 分布统计
+    │ ├── band.py ★新 【A】带宽生成 + 相邻职级重叠度
+    │ ├── market.py ★新 【A】市场对标
+    │ ├── increase.py ★新 【B】调薪模拟（含预算守恒求解）
+    │ ├── paymix.py ★新 【B】固浮比模拟
+    │ ├── jobeval.py ★新 【B】海氏 / 美世打分与职级建议
+    │ ├── charts.py ★新 【B】plotly 图表（中文字体 + kaleido 降级）
+    │ ├── report.py ★新 【B】Markdown + HTML 报告生成
+    │ ├── sandbox.py ★新 【B】PTC-L2 沙箱（AST 预检 + 受限命名空间 + 子进程隔离）
+    │ └── server.py ★新 【B】stdio Content-Length 分帧 + JSON-RPC 2.0 分发
+    ├── plugins/comp-tool/ # ============ TS Cordis 插件 ============
+    │ ├── package.json ★新 【C】含 
+    │ ├── tsconfig.json ★新 【C】
+    │ ├── cordis.patch.yml ★新 【C】无 BOM；只用 - insert:
+    │ └── src/
+    │ ├── index.ts 【已存在目录】name / inject / apply
+    │ ├── service.ts ★新 【C】11 个工具的 defineTool 注册 + 降级探测
+    │ ├── bridge.ts ★新 【C】持久 worker 生命周期（启动/心跳/超时/重启）
+    │ ├── envelope.ts ★新 【C】泛型 output.schema + render + presentationMeta
+    │ └── schemas.ts ★新 【C】10 份 parameters DSL
     └── skills/comp-analyst/
-        └── SKILL.md                   ★新  【C】首席薪酬官助手（CCO Copilot）
+        └── SKILL.md ★新 【C】首席薪酬官助手（CCO Copilot）
 ```
 
 ### 关键文件职责
@@ -360,11 +367,11 @@ comp-agent-harness/
 
 ```jsonc
 {
-  "ok": true,                       // boolean
-  "code": "OK",                     // string，见 §4.10 错误码表
+  "ok": true, // boolean
+  "code": "OK", // string，见 §4.10 错误码表
   "message": "中文一句话结论",
-  "data": { },                      // 每工具不同，见 §4.1-4.10；必含 "summary_md"
-  "artifacts": [                    // 明细产物（落盘，不进上下文）
+  "data": { }, // 每工具不同，见 §4.1-4.10；必含 "summary_md"
+  "artifacts": [ // 明细产物（落盘，不进上下文）
     { "id": "increase_detail", "kind": "table", "path": "assets/increase_detail_20260830_120000.csv",
       "rows": 150, "preview": [ /* 前 5 行 */ ] }
   ],
@@ -390,7 +397,7 @@ comp-agent-harness/
 
 **注册的 `output.schema`（泛型，11 个工具共用）**：
 
-> ⚠️ **2026-08-30 实测更正（原提案有两处会被 dsh-tools 拒绝，以本节为准）**
+> ⚠️ **2026-08-30 实测更正（原提案有两处会被 工具注册框架 拒绝，以本节为准）**
 >
 > 实测对象：`@deepseek-ai/dsh-tools@0.1.1-rc.2` 的官方 `defineTool`。
 > 复现与反例见 `src/plugins/comp-tool/src/__tests__/definetool-probe.mjs`（16 项全过）。
@@ -408,16 +415,16 @@ comp-agent-harness/
 export const ENVELOPE_OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
-    ok:        { type: 'boolean' },
-    code:      { type: 'string' },
-    message:   { type: 'string' },
-    hint:      { type: 'string' },
-    detail:    { type: 'string' },
-    data:      { type: 'json' },                       // 开放节点：必须是 type:'json'
+    ok: { type: 'boolean' },
+    code: { type: 'string' },
+    message: { type: 'string' },
+    hint: { type: 'string' },
+    detail: { type: 'string' },
+    data: { type: 'json' }, // 开放节点：必须是 type:'json'
     artifacts: { type: 'array', items: { type: 'json' } },
-    charts:    { type: 'array', items: { type: 'json' } },
-    warnings:  { type: 'array', items: { type: 'string' } },
-    meta:      { type: 'json' },
+    charts: { type: 'array', items: { type: 'json' } },
+    warnings: { type: 'array', items: { type: 'string' } },
+    meta: { type: 'json' },
   },
   // ★ 不得加顶层 required —— value schema DSL 不支持（见上表）
   additionalProperties: false,
@@ -438,10 +445,10 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
 {
   "name": "load_salary_data",
   "description": "读取薪酬表（csv/xlsx），自动清洗脏数据并给出字段映射建议。必须在其他分析工具之前调用。只返回前 5 行预览与统计摘要，绝不返回全量明细。",
-  "parameters": {                                   // 扁平 DSL
-    "file_path":   { "type": "string", "required": true,  "description": "csv/xlsx 绝对路径，使用 C:/... 正斜杠" },
-    "sheet":       { "type": "string", "description": "xlsx 的 sheet 名，缺省第一个" },
-    "session_id":  { "type": "string", "description": "会话标识，缺省 'default'" },
+  "parameters": { // 扁平 DSL
+    "file_path": { "type": "string", "required": true, "description": "csv/xlsx 绝对路径，使用 C:/... 正斜杠" },
+    "sheet": { "type": "string", "description": "xlsx 的 sheet 名，缺省第一个" },
+    "session_id": { "type": "string", "description": "会话标识，缺省 'default'" },
     "desensitize": { "type": "boolean","description": "是否对姓名做脱敏、薪资做比例缩放，缺省 true" }
   }
 }
@@ -453,11 +460,11 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
 {
   "summary_md": "…",
   "file": { "path":"…", "format":"csv", "rows_raw":151, "cols_raw":21, "sheet":null },
-  "preview": [ { "工号":"E0001", "基本工资(元/月)": 14200, … } ],      // ≤5 行，原始列名
+  "preview": [ { "工号":"E0001", "基本工资(元/月)": 14200, … } ], // ≤5 行，原始列名
   "columns": [ { "raw":"基本工资(元/月)", "suggest":"monthly_salary", "label":"当前月薪", "confidence":100, "ambiguous":false, "candidates":[{"field":"monthly_salary","label":"当前月薪","score":100}] } ],
   "mapping_status": {
-    "required_satisfied": false,          // 必填字段是否已全部有建议
-    "missing_required": ["band_mid"],     // 无建议的必填字段
+    "required_satisfied": false, // 必填字段是否已全部有建议
+    "missing_required": ["band_mid"], // 无建议的必填字段
     "unmapped_columns": ["入职日期","备注","数据状态"],
     "conflicts": [ { "raw":"min", "candidates":["band_min","mkt_p25"] } ]
   },
@@ -482,16 +489,16 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
   "description": "确认或修正字段映射，把原始表标准化为内部标准字段（18 个）。映射固化后全部下游工具才可用。",
   "parameters": {
     // ★ additionalProperties 必须是**布尔 true**，不能写成 { "type":"string" }。
-    //   这是本节最容易踩的一处：JSON Schema 里写 schema 是合法的，但 dsh-tools
-    //   的 value-schema DSL 会抛
-    //   `parameters.mapping.additionalProperties must be explicitly true or false`。
-    //   tools/gen_plugin_schemas.py 会自动把 schema 形态规整成 true（共修过 7 处），
-    //   但手改 schemas.ts 时务必照此写。
-    "mapping":    { "type":"object", "required": true, "additionalProperties": true,
+    // 这是本节最容易踩的一处：JSON Schema 里写 schema 是合法的，但 工具注册框架
+    // 的 value-schema DSL 会抛
+    // `parameters.mapping.additionalProperties must be explicitly true or false`。
+    // tools/gen_plugin_schemas.py 会自动把 schema 形态规整成 true（共修过 7 处），
+    // 但手改 schemas.ts 时务必照此写。
+    "mapping": { "type":"object", "required": true, "additionalProperties": true,
                     "description": "原始列名 → 标准字段名的字典；值设为 '' 表示忽略该列" },
     "session_id": { "type":"string" },
-    "fill_missing_band":  { "type":"boolean", "description": "带宽三列缺失时是否立即用现状中位数+分层默认幅度生成临时带宽，缺省 true" },
-    "fill_annual_cash":   { "type":"boolean", "description": "年度总现金缺失时是否用 月薪×12 推算，缺省 true" }
+    "fill_missing_band": { "type":"boolean", "description": "带宽三列缺失时是否立即用现状中位数+分层默认幅度生成临时带宽，缺省 true" },
+    "fill_annual_cash": { "type":"boolean", "description": "年度总现金缺失时是否用 月薪×12 推算，缺省 true" }
   }
 }
 ```
@@ -523,13 +530,13 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
   "name": "desensitize_data",
   "description": "对当前会话数据生成脱敏副本：姓名泛化、薪资按比例缩放、ID 重编号。原 session 数据不变，只写出新文件。用于需要把数据交给第三方或用于演示时。",
   "parameters": {
-    "session_id":     { "type":"string" },
-    "output_path":    { "type":"string", "required": true, "description": "脱敏结果输出路径（csv/xlsx）" },
-    "name_mode":      { "type":"string", "enum":["surname","drop","pseudonym"], "description": "surname=只留姓+**（默认）；drop=整列删除；pseudonym=替换为 E0001 式编号" },
-    "salary_mode":    { "type":"string", "enum":["scale","rank","drop"], "description": "scale=整体乘一个随机系数（默认，保持分布形态与相对关系）；rank=替换为职级中位值（最保守）；drop=删除薪资列" },
-    "scale_range":    { "type":"array", "items": { "type":"number" }, "description": "salary_mode=scale 时的系数区间，默认 [0.85, 1.15]" },
-    "drop_columns":   { "type":"array", "items": { "type":"string" }, "description": "额外强制删除的标准字段，如 ['name','dept']" },
-    "seed":           { "type":"number", "description": "随机种子，缺省随机（不写死保证不可反推）" }
+    "session_id": { "type":"string" },
+    "output_path": { "type":"string", "required": true, "description": "脱敏结果输出路径（csv/xlsx）" },
+    "name_mode": { "type":"string", "enum":["surname","drop","pseudonym"], "description": "surname=只留姓+**（默认）；drop=整列删除；pseudonym=替换为 E0001 式编号" },
+    "salary_mode": { "type":"string", "enum":["scale","rank","drop"], "description": "scale=整体乘一个随机系数（默认，保持分布形态与相对关系）；rank=替换为职级中位值（最保守）；drop=删除薪资列" },
+    "scale_range": { "type":"array", "items": { "type":"number" }, "description": "salary_mode=scale 时的系数区间，默认 [0.85, 1.15]" },
+    "drop_columns": { "type":"array", "items": { "type":"string" }, "description": "额外强制删除的标准字段，如 ['name','dept']" },
+    "seed": { "type":"number", "description": "随机种子，缺省随机（不写死保证不可反推）" }
   }
 }
 ```
@@ -541,7 +548,7 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
   "summary_md": "…",
   "output": { "path":"data/desensitized_20260830.csv", "rows":149, "cols":16, "bytes":21480 },
   "transformations": [
-    { "field":"name",  "mode":"surname", "sample":"张**" },
+    { "field":"name", "mode":"surname", "sample":"张**" },
     { "field":"monthly_salary", "mode":"scale", "factor":1.0732,
       "note":"整体乘以同一系数，保留分布形态与个体间相对关系；系数为随机生成且默认不固定种子" },
     { "field":"emp_id", "mode":"renumber", "prefix":"E" }
@@ -560,13 +567,13 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
 {
   "name": "analyze_current_state",
   "parameters": {
-    "session_id":   { "type":"string" },
-    "group_by":     { "type":"array", "items": { "type":"string", "enum":["level","dept","job_family","perf_grade"] },
+    "session_id": { "type":"string" },
+    "group_by": { "type":"array", "items": { "type":"string", "enum":["level","dept","job_family","perf_grade"] },
                       "description": "分组维度，缺省 ['level']" },
-    "band_source":  { "type":"string", "enum":["auto","existing","market"], "description": "auto=缺失时按现状中位数生成；existing=仅用表中带宽；market=用市场 P50 作中位值。缺省 auto" },
-    "red_cr":       { "type":"number", "description": "红圈 CR 阈值，缺省 1.20" },
-    "green_cr":     { "type":"number", "description": "绿圈 CR 阈值，缺省 0.80" },
-    "make_charts":  { "type":"boolean", "description": "缺省 true" }
+    "band_source": { "type":"string", "enum":["auto","existing","market"], "description": "auto=缺失时按现状中位数生成；existing=仅用表中带宽；market=用市场 P50 作中位值。缺省 auto" },
+    "red_cr": { "type":"number", "description": "红圈 CR 阈值，缺省 1.20" },
+    "green_cr": { "type":"number", "description": "绿圈 CR 阈值，缺省 0.80" },
+    "make_charts": { "type":"boolean", "description": "缺省 true" }
   }
 }
 ```
@@ -578,10 +585,10 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
   "summary_md": "…",
   "basis": { "band_source":"auto", "band_generated": true,
              "note":"表中无带宽三列，已用各职级现状月薪中位数作为临时中位值，并按层级默认带宽幅度生成带宽" },
-  "effective_thresholds": {                    // ★见 §6.2，HR 会追问这里
+  "effective_thresholds": { // ★见 §6.2，HR 会追问这里
     "spread_used": 0.35,
-    "red_cr_effective": 1.1489,                // = min(1.20, (1+s)/(1+s/2))
-    "green_cr_effective": 0.8511,              // = max(0.80, 1/(1+s/2))
+    "red_cr_effective": 1.1489, // = min(1.20, (1+s)/(1+s/2))
+    "green_cr_effective": 0.8511, // = max(0.80, 1/(1+s/2))
     "binding_rule": "越界条件更严格（带宽幅度 35% < 临界值 50%）"
   },
   "overall": { "headcount":149, "monthly_total":2418000, "annual_total":29016000,
@@ -590,9 +597,9 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
                   "band_min":21500,"band_mid":26500,"band_max":29025,
                   "cr_median":1.00,"red":4,"green":2,"ok":12,"annual_cost":5710000 } ],
   "circles": {
-    "red":   { "count":12, "pct":8.05, "annual_overflow_yuan": 384200, "top_levels":[{"level":"P5","count":4}] },
+    "red": { "count":12, "pct":8.05, "annual_overflow_yuan": 384200, "top_levels":[{"level":"P5","count":4}] },
     "green": { "count":19, "pct":12.75, "annual_gap_yuan": 521300, "top_levels":[{"level":"P3","count":6}] },
-    "ok":    { "count":118, "pct":79.19 }
+    "ok": { "count":118, "pct":79.19 }
   },
   "risks": [
     { "type":"cost", "severity":"high", "text":"P5 职级红圈 4 人，年成本溢出约 38.4 万元，且多为司龄>6 年员工" },
@@ -610,18 +617,18 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
 {
   "name": "generate_band",
   "parameters": {
-    "session_id":     { "type":"string" },
-    "mode":           { "type":"string", "enum":["new","optimize"], "required": true,
+    "session_id": { "type":"string" },
+    "mode": { "type":"string", "enum":["new","optimize"], "required": true,
                         "description": "new=全新设计（用基准中位值/级差推导）；optimize=基于现状优化（用现状中位数回归）" },
-    "base_mid":       { "type":"number", "description": "最低职级的基准中位值月薪；缺省取现状最低职级中位数" },
-    "midpoint_diff":  { "type":"number", "description": "相邻职级中位值级差，如 0.15；缺省 0.15。支持传数组按职级分别指定" },
-    "spread_mode":    { "type":"string", "enum":["tier_default","uniform","explicit"], "description": "缺省 tier_default（按 schemas.LEVEL_TIER_RULES 分层）" },
-    "spread":         { "type":"number", "description": "spread_mode=uniform 时统一带宽幅度" },
+    "base_mid": { "type":"number", "description": "最低职级的基准中位值月薪；缺省取现状最低职级中位数" },
+    "midpoint_diff": { "type":"number", "description": "相邻职级中位值级差，如 0.15；缺省 0.15。支持传数组按职级分别指定" },
+    "spread_mode": { "type":"string", "enum":["tier_default","uniform","explicit"], "description": "缺省 tier_default（按 schemas.LEVEL_TIER_RULES 分层）" },
+    "spread": { "type":"number", "description": "spread_mode=uniform 时统一带宽幅度" },
     "spread_by_level":{ "type":"object", "additionalProperties": { "type":"number" }, "description": "spread_mode=explicit 时按职级指定" },
-    "use_market":     { "type":"boolean", "description": "有市场数据时，中位值是否锚定市场分位值，缺省 true" },
+    "use_market": { "type":"boolean", "description": "有市场数据时，中位值是否锚定市场分位值，缺省 true" },
     "market_percentile": { "type":"string", "enum":["P25","P50","P75"] },
-    "levels":         { "type":"array", "items": { "type":"string" }, "description": "职级序列；缺省从数据推断并按 level_sort_key 排序" },
-    "make_charts":    { "type":"boolean" }
+    "levels": { "type":"array", "items": { "type":"string" }, "description": "职级序列；缺省从数据推断并按 level_sort_key 排序" },
+    "make_charts": { "type":"boolean" }
   }
 }
 ```
@@ -660,9 +667,9 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
   "name": "market_benchmark",
   "parameters": {
     "session_id": { "type":"string" },
-    "strategy":   { "type":"string", "enum":["auto","P25","P50","P75"], "description": "auto=按 schemas.DEFAULT_MARKET_STRATEGY 按岗位序列取（销售/技术 P75、管理/职能 P50、操作 P25）" },
+    "strategy": { "type":"string", "enum":["auto","P25","P50","P75"], "description": "auto=按 schemas.DEFAULT_MARKET_STRATEGY 按岗位序列取（销售/技术 P75、管理/职能 P50、操作 P25）" },
     "strategy_by_family": { "type":"object", "additionalProperties": { "type":"string" } },
-    "group_by":   { "type":"array", "items": { "type":"string", "enum":["level","job_family","dept"] } },
+    "group_by": { "type":"array", "items": { "type":"string", "enum":["level","job_family","dept"] } },
     "make_charts": { "type":"boolean" }
   }
 }
@@ -691,16 +698,16 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
 {
   "name": "simulate_increase",
   "parameters": {
-    "session_id":      { "type":"string" },
-    "budget_pct":      { "type":"number", "required": true, "description": "调薪总预算占调薪前年度薪资总额的比例，如 0.06 = 6%" },
-    "strategies":      { "type":"array", "items": { "type":"string", "enum":["A","B","C","D"] },
+    "session_id": { "type":"string" },
+    "budget_pct": { "type":"number", "required": true, "description": "调薪总预算占调薪前年度薪资总额的比例，如 0.06 = 6%" },
+    "strategies": { "type":"array", "items": { "type":"string", "enum":["A","B","C","D"] },
                          "description": "A=平均分配 B=优先补绿圈 C=按绩效加权 D=优先保留红圈(冻结)；缺省 ['A','B','C','D']" },
-    "custom_weights":  { "type":"object", "additionalProperties": { "type":"number" },
+    "custom_weights": { "type":"object", "additionalProperties": { "type":"number" },
                          "description": "自定义绩效权重，如 {'A':2.0,'B':1.2,'C':0.4,'D':0}；缺省取 schemas.PERF_WEIGHTS" },
-    "cap_pct":         { "type":"number", "description": "个人单次涨幅上限，如 0.20；缺省 0.20" },
-    "green_target":    { "type":"number", "description": "策略 B 的补底目标：'band_min' 或 0.85 表示补到 CR=0.85；缺省 'band_min'" },
-    "frozen_for_red":  { "type":"boolean", "description": "策略 D 下红圈是否完全冻结且不占调薪池，缺省 true" },
-    "make_charts":     { "type":"boolean" }
+    "cap_pct": { "type":"number", "description": "个人单次涨幅上限，如 0.20；缺省 0.20" },
+    "green_target": { "type":"number", "description": "策略 B 的补底目标：'band_min' 或 0.85 表示补到 CR=0.85；缺省 'band_min'" },
+    "frozen_for_red": { "type":"boolean", "description": "策略 D 下红圈是否完全冻结且不占调薪池，缺省 true" },
+    "make_charts": { "type":"boolean" }
   }
 }
 ```
@@ -718,7 +725,7 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
       "avg_increase_pct": 6.0, "median_increase_pct": 6.0,
       "red_before":12, "red_after":12, "green_before":19, "green_after":16,
       "cr_before": {"mean":1.02,"median":1.00,"std":0.13},
-      "cr_after":  {"mean":1.08,"median":1.06,"std":0.13},
+      "cr_after": {"mean":1.08,"median":1.06,"std":0.13},
       "by_level": [ {"level":"P1","headcount":20,"avg_increase_pct":6.0,"cost":132000} ],
       "pros":"操作简单、内部公平感强", "cons":"与绩效、与市场脱钩，保留不了关键人才" },
     { "key":"B", "name":"优先补绿圈", "…": "…" },
@@ -739,10 +746,10 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
 {
   "name": "simulate_pay_mix",
   "parameters": {
-    "session_id":   { "type":"string" },
-    "target_mix":   { "type":"object", "additionalProperties": { "type":"string" },
+    "session_id": { "type":"string" },
+    "target_mix": { "type":"object", "additionalProperties": { "type":"string" },
                       "description": "岗位序列 → 目标固浮比 '固定:浮动'，如 {'销售':'40:60'}；缺省取 schemas.JOB_FAMILY_PAY_MIX" },
-    "mix_source":   { "type":"string", "enum":["family_default","existing","explicit"], "description": "缺省 family_default" },
+    "mix_source": { "type":"string", "enum":["family_default","existing","explicit"], "description": "缺省 family_default" },
     "achievement_range": { "type":"array", "items": { "type":"number" }, "description": "业绩达成率扫描区间 [min,max,step]，缺省 [0,1.5,0.1]" },
     "make_charts": { "type":"boolean" }
   }
@@ -774,9 +781,9 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
   "name": "calc_job_score",
   "parameters": {
     "session_id": { "type":"string" },
-    "model":      { "type":"string", "enum":["hay","mercer"], "required": true, "description": "hay=海氏三要素 mercer=美世IPE四因素" },
-    "position":   { "type":"string", "description": "岗位名称；用于输出标题与批量时的键" },
-    "scores":     { "type":"object", "required": true, "additionalProperties": { "type":"number" },
+    "model": { "type":"string", "enum":["hay","mercer"], "required": true, "description": "hay=海氏三要素 mercer=美世IPE四因素" },
+    "position": { "type":"string", "description": "岗位名称；用于输出标题与批量时的键" },
+    "scores": { "type":"object", "required": true, "additionalProperties": { "type":"number" },
                     "description": "子维度 → 1-10 分。hay 的子维度见 schemas.JOB_EVAL_MODELS['hay'].subfactors；mercer 同理。可只传部分，缺失维度按同要素已填均值或 5 分兜底并记 warning" },
     "batch_file": { "type":"string", "description": "批量打分表路径（csv/xlsx），与 scores 二选一" },
     "template_out": { "type":"string", "description": "若指定，则导出空白打分模板到该路径" }
@@ -792,8 +799,8 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
   "model": "hay", "model_label": "海氏三要素法",
   "position": "高级Java工程师",
   "factors": [ { "factor":"知识技能","weight":0.40,"subfactor_mean":4.33,"weighted":1.732 }, … ],
-  "raw_score": 4.06,                       // 1-10 加权原始分
-  "job_score": 650,                        // = round(raw_score × 160)，量级对齐 JOB_SCORE_LEVEL_BANDS
+  "raw_score": 4.06, // 1-10 加权原始分
+  "job_score": 650, // = round(raw_score × 160)，量级对齐 JOB_SCORE_LEVEL_BANDS
   "scale_note": "job_score = round(raw_score × 160)，使 1-10 分加权结果映射至 160-1600 量级，与 schemas.JOB_SCORE_LEVEL_BANDS 对齐。本项目为简易打分表，非正式认证评估。",
   "suggested_level": "P4",
   "level_band": { "lo":560, "hi":700, "level":"P4" },
@@ -808,10 +815,10 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
 {
   "name": "generate_report",
   "parameters": {
-    "session_id":  { "type":"string" },
-    "sections":    { "type":"array", "items": { "type":"integer", "enum":[1,2,3,4,5,6,7] }, "description": "缺省全部 7 节" },
-    "formats":     { "type":"array", "items": { "type":"string", "enum":["md","html"] }, "description": "缺省 ['md','html']" },
-    "title":       { "type":"string" },
+    "session_id": { "type":"string" },
+    "sections": { "type":"array", "items": { "type":"integer", "enum":[1,2,3,4,5,6,7] }, "description": "缺省全部 7 节" },
+    "formats": { "type":"array", "items": { "type":"string", "enum":["md","html"] }, "description": "缺省 ['md','html']" },
+    "title": { "type":"string" },
     "include_appendix": { "type":"boolean", "description": "是否附方法论与口径说明，缺省 true" }
   }
 }
@@ -822,11 +829,11 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
 ```jsonc
 {
   "summary_md": "…",
-  "outputs": [ { "format":"md",   "path":"report/薪酬诊断报告_20260830_120000.md",   "bytes": 42130 },
+  "outputs": [ { "format":"md", "path":"report/薪酬诊断报告_20260830_120000.md", "bytes": 42130 },
                { "format":"html", "path":"report/薪酬诊断报告_20260830_120000.html", "bytes": 3184220 } ],
   "sections": [ {"no":1,"title":"执行摘要","chars":980}, … ],
   "charts_embedded": 5,
-  "chart_mode": "html_inline",       // html_inline | png | link_only
+  "chart_mode": "html_inline", // html_inline | png | link_only
   "data_source_declaration": "本报告全部数据来自本地模拟数据（data/ 目录），未上传任何云端服务。"
 }
 ```
@@ -840,9 +847,9 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
   "name": "run_comp_code",
   "description": "在受限 Python 沙箱中执行一段分析代码，用于批量编排薪酬工具、或直接用 pandas 做自定义分析。可用：pandas as pd、numpy as np、math、statistics、json；已注入 tools 对象（9 个薪酬工具的同步封装）与 comp 会话对象。禁止：文件读写、网络、子进程、导入白名单外模块、访问 __class__/__globals__ 等双下划线属性。每次运行全新环境，只有 print() 与顶层 return 的内容会返回。超时 15 秒。",
   "parameters": {
-    "code":        { "type":"string", "required": true, "description": "Python 代码（同步，不支持 async）" },
+    "code": { "type":"string", "required": true, "description": "Python 代码（同步，不支持 async）" },
     "description": { "type":"string", "required": true, "description": "一句话说明这段代码做什么" },
-    "session_id":  { "type":"string" }
+    "session_id": { "type":"string" }
   }
 }
 ```
@@ -912,15 +919,15 @@ export const ENVELOPE_OUTPUT_SCHEMA = {
 | ✅ **持久 stdio worker** | 首次 ~2-3s（anaconda `import pandas`），后续 ~10-30ms | **天然持有 DataFrame**，跨工具传递零序列化 | 需处理心跳/超时/崩溃重启 | **采纳** |
 | ❌ 每次 spawn 进程 | 每次 2-3s × 10+ 次调用 = 一次会话 30s+ 纯等待，交互体验不可用 | 每次都要重新读文件、重新映射，或靠磁盘 pickle 反复序列化 | 低 | 否决 |
 | ❌ HTTP 本地服务 | 同持久方案 | 同 | 多出端口占用、防火墙、跨进程鉴权问题；本地软件不该开端口 | 否决 |
-| ❌ Python MCP server + `dsh-mcp-client` | 同持久方案 | 同 | **代码量最少**（官方支持 stdio MCP） | 见下 |
+| ❌ Python MCP server + `` | 同持久方案 | 同 | **代码量最少**（官方支持 stdio MCP） | 见下 |
 
 > **关于 MCP 方案**：把 Python 核心包成 MCP server、用 `@deepseek-ai/dsh-mcp-client` 注册，确实是代码量最小的路径。但本项目**不采纳为主方案**，理由：① 需求明确要求「技能插件(Skill) + 工具插件(Tool)，一切皆插件」，自建 Cordis 插件本身就是作品集要展示的能力；② 自研插件才能拿到 `output.presentationMeta`（工具卡片标题）、`isConcurrencySafe` 精细控制、`spillStore` 集成；③ MCP 路径写入 README 的「架构权衡」章节，作为**被评估并主动放弃的备选**，这本身就是加分项。
 > （注：虽然不采用 MCP 作为**集成方式**，但本项目**采用 MCP 的线缆分帧格式**，见 §5.2.1 —— 这让「改用 MCP 只需换集成层、线缆层不动」成为一句真话。）
 
 #### 5.2.1 分帧方案：为什么是 Content-Length 而不是 NDJSON
 
-**⚠️ 无先例可对标（重要事实，避免误导）**：`dsh-excel-kit` 虽然是本项目在**插件入口与工具注册**上的金标准，但它**不能作为 Python↔TS 桥接的先例** —— 它是**纯 TypeScript 进程内实现**，完全没有桥。实测依据：整个包（含 `src/` 与 `lib/`）搜不到任何 `stdout` / `spawn(` / `Content-Length`；`package.json` 依赖只有 `lodash / sax / xlsx / yauzl`（全为 JS 侧 Excel 解析库），无 Python、无任何跨进程调用。
-⇒ **本项目的 Python↔TS 桥接是自创设计，dsh 生态内没有可直接抄的先例。** 因此分帧方案必须回到本项目自身约束来论证，不能引用不存在的"既有实践"。
+**⚠️ 无先例可对标（重要事实，避免误导）**：`同生态参考插件` 虽然是本项目在**插件入口与工具注册**上的金标准，但它**不能作为 Python↔TS 桥接的先例** —— 它是**纯 TypeScript 进程内实现**，完全没有桥。实测依据：整个包（含 `src/` 与 `lib/`）搜不到任何 `stdout` / `spawn(` / `Content-Length`；`package.json` 依赖只有 `lodash / sax / xlsx / yauzl`（全为 JS 侧 Excel 解析库），无 Python、无任何跨进程调用。
+⇒ **本项目的 Python↔TS 桥接是自创设计， 生态内没有可直接抄的先例。** 因此分帧方案必须回到本项目自身约束来论证，不能引用不存在的"既有实践"。
 
 **本项目的四条真实约束**：
 
@@ -983,7 +990,7 @@ Content-Length: <N>\r\n
 | 超时 | 每请求默认 30s（`simulate_increase` / `generate_report` 可到 120s），超时 `proc.kill()` 并返回 `SANDBOX_TIMEOUT`/`INTERNAL_ERROR` |
 | 关闭 | 插件 `ctx.on('dispose')` → 发 `{"method":"shutdown"}` → 等 3s → `kill` |
 
-> **Windows 纪律**：`pythonExe` 必须 `C:/ProgramData/anaconda3/python.exe`（正斜杠）。`/c/...` 形式会被 Git Bash 改写成 `C:\c\...` 导致 `MODULE_NOT_FOUND`（`dsh-bundle-deploy` skill 已记录同类踩坑）。
+> **Windows 纪律**：`pythonExe` 必须 `C:/ProgramData/anaconda3/python.exe`（正斜杠）。`/c/...` 形式会被 Git Bash 改写成 `C:\c\...` 导致 `MODULE_NOT_FOUND`（`` skill 已记录同类踩坑）。
 
 ### 5.3 会话状态管理
 
@@ -995,14 +1002,14 @@ class SessionState:
     session_id: str
     created_at: float
     last_used: float
-    file_meta: dict                  # 来源文件、格式、原始行列数
-    df_raw: Optional[pd.DataFrame]   # 原始列
-    mapping: Dict[str, str]          # 原始列 -> 标准字段
-    df_std: Optional[pd.DataFrame]   # 标准化后（CANONICAL_ORDER）
+    file_meta: dict # 来源文件、格式、原始行列数
+    df_raw: Optional[pd.DataFrame] # 原始列
+    mapping: Dict[str, str] # 原始列 -> 标准字段
+    df_std: Optional[pd.DataFrame] # 标准化后（CANONICAL_ORDER）
     cleaning_report: dict
-    artifacts: Dict[str, dict]       # ★ 计算结果缓存：key -> {kind, path, rows, payload_ref}
+    artifacts: Dict[str, dict] # ★ 计算结果缓存：key -> {kind, path, rows, payload_ref}
     charts: List[dict]
-    history: List[dict]              # [{tool, args_digest, ts}]，仅记摘要不记参数全文
+    history: List[dict] # [{tool, args_digest, ts}]，仅记摘要不记参数全文
 ```
 
 **三条传递规则**：
@@ -1027,9 +1034,9 @@ class SessionState:
 **`session_id` 取值**（`ToolExec` 里 `agent?.sessionId` 可能为 undefined —— 见 `dsh-excel-kit/src/service.ts:49`）:
 
 ```
-session_id = params.session_id            // 工具显式传参，最可控
-          ?? exec?.agent?.sessionId       // dsh 会话 id
-          ?? 'default'                    // 单会话兜底
+session_id = params.session_id // 工具显式传参，最可控
+          ?? exec?.agent?.sessionId // 会话 id
+          ?? 'default' // 单会话兜底
 ```
 
 **持久化与安全**：
@@ -1039,7 +1046,7 @@ session_id = params.session_id            // 工具显式传参，最可控
 
 ### 5.4 PTC 沙箱设计（`run_comp_code`）
 
-**威胁模型（诚实声明，写进 README）**：这是**纵深防御的防呆层，不是对抗恶意代码的安全边界**。与 dsh 官方对 worker-thread 的表述保持一致（「这是隔离措施，而非安全边界」，`dsh-code-runtime-worker-thread/README.zh.md:5`）。目标是**防止模型误写危险代码导致破坏/泄密**，而非防御蓄意攻击者。
+**威胁模型（诚实声明，写进 README）**：这是**纵深防御的防呆层，不是对抗恶意代码的安全边界**。与 官方对 worker-thread 的表述保持一致（「这是隔离措施，而非安全边界」，`dsh-code-runtime-worker-thread/README.zh.md:5`）。目标是**防止模型误写危险代码导致破坏/泄密**，而非防御蓄意攻击者。
 
 **执行位置：每次调用 spawn 一个一次性子进程。**
 
@@ -1080,7 +1087,7 @@ session_id = params.session_id            // 工具显式传参，最可控
 | 决策 | 选择 | 不选另一个的理由 |
 |---|---|---|
 | 错误传递 | 统一 `ok:false` envelope，不 throw | throw 会被转成纯文本 `Error: msg`（模型拿不到结构化 code 无法自纠），且返回值不匹配 `output.schema` 触发宿主校验失败 |
-| `summary_md` 生成位置 | **Python 侧**（`data.summary_md`），TS `render` 直接透传 | TS 侧生成意味着业务逻辑散落两侧；Python 生成可让 `main.py` 本地路径与 dsh 路径**呈现完全一致**，QA 一次验证覆盖两条链路 |
+| `summary_md` 生成位置 | **Python 侧**（`data.summary_md`），TS `render` 直接透传 | TS 侧生成意味着业务逻辑散落两侧；Python 生成可让 `main.py` 本地路径与 路径**呈现完全一致**，QA 一次验证覆盖两条链路 |
 | `spillStore` 集成 | **不集成**，改用自研 artifacts 句柄 | 我们的明细本来就落盘成 CSV/HTML，`artifacts` 已经解决了"大结果不进上下文"。引入 spill 多一层宿主依赖（`ctx.get('spillStore')` 可能为 undefined），收益为零 |
 | `timeoutMs` | 声明为**文档性元数据**，实际超时由 `bridge.ts` 与 `sandbox.py` 强制执行 | README 明确「定义中的 `timeoutMs` 仅作声明之用，注册表绝不会强制执行」 |
 | 配置 | 新增 `config.yaml`（模型提供方 / 路径 / `security.persist_dataframe` / `charts.plotlyjs_mode` / 业务默认值） | 需求明确要求「模型层配置化切换 DeepSeek 云端 / Ollama / vLLM」。硬编码在代码里无法满足"面试时 3 秒切换演示" |
@@ -1194,7 +1201,7 @@ Overlap% = (s − d) / s = 1 − d/s
 
 ```
 Overlap = Max_n − Min_{n+1} = Mid_n[(1+s) − (1+d)]/(1+s/2) = Mid_n(s−d)/(1+s/2)
-W_n     = Max_n − Min_n     = Mid_n·s/(1+s/2)
+W_n = Max_n − Min_n = Mid_n·s/(1+s/2)
 ⇒ Overlap% = (s−d)/s
 ```
 
@@ -1240,7 +1247,7 @@ W_n     = Max_n − Min_n     = Mid_n·s/(1+s/2)
 
 ```
 预算 B = 调薪前年度薪资总额 × budget_pct
-约束   Σ_i (新月薪_i − 原月薪_i) × 12 ≤ B
+约束 Σ_i (新月薪_i − 原月薪_i) × 12 ≤ B
 ```
 
 **分配算法（四策略统一框架）**：
@@ -1264,9 +1271,9 @@ W_n     = Max_n − Min_n     = Mid_n·s/(1+s/2)
 ### 6.6 固浮比模拟
 
 ```
-固定部分   = 年度总现金 × F/(F+V)
-浮动目标   = 年度总现金 × V/(F+V)
-实际总收入(a) = 固定部分 + 浮动目标 × a ,  a ∈ [0, 1.5]
+固定部分 = 年度总现金 × F/(F+V)
+浮动目标 = 年度总现金 × V/(F+V)
+实际总收入(a) = 固定部分 + 浮动目标 × a , a ∈ [0, 1.5]
 收入实现率(a) = 实际总收入(a) / 年度总现金 = F/(F+V) + V/(F+V) × a
 ```
 
@@ -1408,9 +1415,9 @@ flowchart LR
 |---|---|---|---|---|
 | **T5.1** | 插件骨架 + 桥接 | `src/plugins/comp-tool/{package.json,tsconfig.json,cordis.patch.yml,src/index.ts,src/bridge.ts}` | ① `name`/`inject`/`apply` 三件套，**不导出 Config**；② `bridge.ts` 完整生命周期（§5.2 表格 8 项）；③ `tsc` 编译产物落 `lib/` | T4.3 | ✅ **已完成**（commit `0eb59a4`）：tsc 0 错误产出 5 模块；`frame.test.mjs` 27/0；`worker-e2e.mjs` 23/0（真实 Python worker 全链路） |
 | **T5.2** | 11 个工具注册 | `src/service.ts`, `src/schemas.ts`, `src/envelope.ts` | ① 官方 `defineTool` + **扁平 DSL**（§2.2），含降级探测；② 泛型 envelope output schema（§4.0）；③ `render` 透传 `data.summary_md`；④ `isConcurrencySafe` 按 §5.3 分配 | T5.1 | ✅ **已完成**（commit `0eb59a4`）：`definetool-probe.mjs` 16/0 —— 11 个参数表逐个喂**官方 defineTool** 真实编译通过 + 3 个反例均被拒；`params-alignment.mjs` 与 `registry.py` 参数名/required diff 全为空 |
-| **T5.3** | 部署与硬闸门 | `profiles/node_modules/dsh-comp-tool/` + `profiles/web/package.json` | ① bundle 落位 + `dsh.profile.bundles` 追加（**改前备份 .bak-<ts>**）；② **弱闸门**：`--profile headless --dump-config` 出现 `- id: comp-tool` 且无 `not found`/`SyntaxError`；③ **强闸门**：真跑 `node bin.js --profile headless "..."` 触发工具并返回结构；④ **无 BOM 校验**（`dsh-bundle-deploy` 坑 1） | T5.2 |
+| **T5.3** | 部署与硬闸门 | `profiles/node_modules/dsh-comp-tool/` + `profiles/web/package.json` | ① bundle 落位 + `` 追加（**改前备份 .bak-<ts>**）；② **弱闸门**：`--profile headless --dump-config` 出现 `- id: comp-tool` 且无 `not found`/`SyntaxError`；③ **强闸门**：真跑 `node bin.js --profile headless "..."` 触发工具并返回结构；④ **无 BOM 校验**（`` 坑 1） | T5.2 |
 | **T5.4** | SKILL.md | `src/skills/comp-analyst/SKILL.md` | ① 角色 = 首席薪酬官助手（CCO Copilot）；② 流程：load → 确认映射 → 按数据完整度决定先诊断 or 先生成带宽 → 解读 → 报告；③ **禁止罗列原始明细**的硬规则；④ 调薪/固浮比必须带方法论前提与风险提示 | T5.2（🔀 可与 T5.3 并行） |
-| **T5.5** | 本地入口 + 配置 | `main.py`, `config.yaml` | ① `python main.py --demo` 一键跑通全流程（造数→load→映射→诊断→带宽→对标→调薪→固浮→报告）；② `config.yaml` 含模型提供方三选一切换 + `security.persist_dataframe` + `charts.plotlyjs_mode`；③ **不经 dsh，纯 Python** | T4.0（🔀 尽早，QA 靠它） |
+| **T5.5** | 本地入口 + 配置 | `main.py`, `config.yaml` | ① `python main.py --demo` 一键跑通全流程（造数→load→映射→诊断→带宽→对标→调薪→固浮→报告）；② `config.yaml` 含模型提供方三选一切换 + `security.persist_dataframe` + `charts.plotlyjs_mode`；③ **不经 ，纯 Python** | T4.0（🔀 尽早，QA 靠它） |
 
 #### 阶段 5：文档与验收
 
@@ -1420,7 +1427,7 @@ flowchart LR
 | **T7.1** | 数值对账 | QA | CR / 渗透率 / 带宽上下限 / 重叠度 / 调薪守恒 —— **手算 ≥5 个样本点比对** | T3/T4 |
 | **T7.2** | 异常用例 | QA | 文件不存在 / 列缺失 / 空值 / 非数值 / 重复 / 无市场数据 / 无带宽 / 预算不足 / 沙箱违规 / 沙箱超时 —— 各 1 条，返回正确 `code` | T3/T4 |
 | **T7.3** | 端到端 | QA | `main.py --demo` 零报错零 FutureWarning；**复跑 `mock_data.py` 确认 FutureWarning 已清理**（BRIEFING §3 已知问题） | T5.5 |
-| **T7.4** | 契约合规 | QA | ① 所有工具返回值过 `to_lossless` 后**不含 NaN/Inf/undefined**；② `output.schema` 不含白名单外关键字；③ dsh 硬闸门通过 | T5.3 |
+| **T7.4** | 契约合规 | QA | ① 所有工具返回值过 `to_lossless` 后**不含 NaN/Inf/undefined**；② `output.schema` 不含白名单外关键字；③ 硬闸门通过 | T5.3 |
 | **T7.5** | 质量门表 | QA | 产出质量门表并标注阻塞项 | 全部 |
 
 ### 7.3 并行建议（给 team-lead 的派工提示）
@@ -1435,9 +1442,9 @@ flowchart LR
 
 ## 8. 风险与权衡（最可能出问题的 3 个点）
 
-### 风险 1（最高）：NaN / 无损 JSON 违反宿主校验 —— 「工具返回了值但 dsh 判定 invalid output」
+### 风险 1（最高）：NaN / 无损 JSON 违反宿主校验 —— 「工具返回了值但 判定 invalid output」
 
-**为什么会发生**：pandas 到处是 NaN（缺失的市场 P25、空的 band_mid、被清洗掉的行）。`JSON.stringify(NaN) === 'null'`，导致 round-trip 不等，`dsh-tools` 在呈现前校验失败。`dsh-excel-kit` 专门写了 `toLossless()`（`src/service.ts:138-150`）来防这个，说明这是**真实踩过的坑**。
+**为什么会发生**：pandas 到处是 NaN（缺失的市场 P25、空的 band_mid、被清洗掉的行）。`JSON.stringify(NaN) === 'null'`，导致 round-trip 不等，`工具注册框架` 在呈现前校验失败。`同生态参考插件` 专门写了 `toLossless()`（`src/service.ts:138-150`）来防这个，说明这是**真实踩过的坑**。
 
 **后果**：工具明明算对了，宿主却报 `invalid output`，且错误信息不指向具体字段 —— 排查成本极高。
 
@@ -1447,11 +1454,11 @@ flowchart LR
 3. **T7.4 专项验收**：遍历 11 个工具 × 3 组数据（标准表 / 乱表 / 无市场数据），断言返回 JSON 中不存在 `NaN`/`Infinity` 字面量；
 4. 在 `summary_md` 中把缺失值统一渲染为 `—`（中文占位），而不是让模型看到 `null` 后自行脑补。
 
-### 风险 2：插件启动即崩（BOM / Config 导出 / cordis.patch 写法）—— 一次崩就是 dsh 死循环
+### 风险 2：插件启动即崩（BOM / Config 导出 / cordis.patch 写法）—— 一次崩就是 死循环
 
-**为什么会发生**：三个已知的 dsh 特有陷阱，任一命中都表现为 `dsh exited (code=1)` 死循环、Web UI「拒绝连接」，且 `--dump-config` **仍会通过**（弱闸门具有欺骗性）。
+**为什么会发生**：三个已知的 特有陷阱，任一命中都表现为 ` exited (code=1)` 死循环、Web UI「拒绝连接」，且 `--dump-config` **仍会通过**（弱闸门具有欺骗性）。
 
-**后果**：不仅本项目挂掉，还会连累用户整个 dsh 环境不可用 —— 对一个「在职 HR 的作品集」来说这是最糟的交付事故。
+**后果**：不仅本项目挂掉，还会连累用户整个 环境不可用 —— 对一个「在职 HR 的作品集」来说这是最糟的交付事故。
 
 **应对**：
 1. **绝不 `export const Config`**（`dsh-excel-kit/src/index.ts:4-7` 已注明）；
@@ -1509,9 +1516,9 @@ flowchart LR
 | 2 | 不得导出 `Config` | `dsh-excel-kit/src/index.ts:4-7` 注释 | ✅ 与 BRIEFING 一致 |
 | 3 | `defineTool` 会强制转换 `parameters` | `dsh-tools/lib/index.js:836,800-809` | ⚠️ **修正 BRIEFING §2.2** |
 | 4 | `profiles/node_modules/@deepseek-ai/dsh-tools` 可解析，v0.1.1-rc.2 | 实跑 `require` | ✅ 已验证 |
-| 5 | `dsh-code-runtime-worker-thread` 已默认注册 | `dsh-web-app/cordis.patch.yml:47-49` | ⚠️ **修正 BRIEFING §2.3** |
+| 5 | `官方 TS 运行时后端` 已默认注册 | `dsh-web-app/cordis.patch.yml:47-49` | ⚠️ **修正 BRIEFING §2.3** |
 | 6 | Python **SDK 渲染器内置**，缺的是**运行时后端** | `dsh-tools/README.zh.md:16` + `py-types.js` | ⚠️ **修正 BRIEFING §2.3** |
-| 7 | `dsh-code-runtime-python` 确实缺失 | `@deepseek-ai/` 目录列举 | ✅ 与 BRIEFING 一致 |
+| 7 | `官方 Python 运行时后端` 确实缺失 | `@deepseek-ai/` 目录列举 | ✅ 与 BRIEFING 一致 |
 | 8 | `tools.mode` 默认 `native` | `dsh-tools/lib/index.js` `mode ?? "native"` | ✅ 新增事实 |
 | 9 | output.schema 关键字白名单仅 8 个 | `dsh-tools/lib/index.js:32-41` | ⚠️ **修正 BRIEFING §2.2** |
 | 10 | 返回值必须为无损 JSON（禁 NaN/undefined） | `dsh-excel-kit/src/service.ts:138-150` | ⚠️ BRIEFING 未提及（新增） |
@@ -1535,4 +1542,4 @@ flowchart LR
 
 ---
 
-*文档结束。实现中如遇本文件未覆盖的契约问题，以 dsh 源码为准并回写本文件。*
+*文档结束。实现中如遇本文件未覆盖的契约问题，以 源码为准并回写本文件。*

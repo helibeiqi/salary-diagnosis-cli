@@ -27,7 +27,7 @@ paths:
   # 不要写死个人绝对路径——避免泄露本机布局，也保证仓库可移植。
   project_root: "."
 
-  # Python worker 入口脚本（dsh 插件通过持久 stdio NDJSON 与之通信）
+  # Python worker 入口脚本（插件层通过持久 stdio NDJSON 与之通信）
   worker_script: "src/tools/server.py"
 
   data_dir: "data"        # 输入数据目录（同时是云端模式的数据白名单）
@@ -196,7 +196,7 @@ sandbox:
     - "itertools"
     - "collections"
   # 威胁模型（如实写进 README）：这是**防呆层，不是对抗恶意代码的安全边界**，
-  # 目标是防止模型误写危险代码，与 dsh 官方对 worker-thread 的表述保持一致。
+  # 目标是防止模型误写危险代码，与官方对 worker-thread 的表述保持一致。
   isolated: "subprocess"     # 一次性子进程；每次运行全新状态
 
   # --- Phase 2：常驻沙箱 + 配额（架构 §4.4 / ROADMAP Phase 2）-------------
