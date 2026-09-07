@@ -12,11 +12,17 @@
 > 现状诊断 → 带宽设计 → 市场对标 → 调薪模拟 → 固浮比分析 → 岗位评估 → 报告导出」
 > 这一整条链。
 >
-> **两种用法，按需选择**：
-> - `run_agent.py` 本地 CLI 入口 —— **零外部依赖环境**，不需要 dsh、不需要 Ollama
->   也能跑通确定性流水线（`--pipeline` 模式下模型完全不参与计算）；
-> - dsh 插件层（`src/plugins/comp-tool/`）—— 可选增强，提供自然语言对话形态，
->   需要已安装 dsh 运行时；模型接入基于 OpenAI 兼容接口，本地 / 云端、任意模型均可配置（见 `config.yaml`）。
+> **编排层可插拔 —— 底层不绑定任何 AI**：同一套 11 个工具以三种方式对外暴露，
+> 你用哪个顺手就用哪个：
+> - **MCP Server**（`src/mcp_adapter.py`，纯标准库、零新增依赖）—— 任何 MCP 客户端
+>   （Claude Desktop / Cursor / WorkBuddy / 自研 agent）直接接入，配置模板见 `.mcp.json.example`；
+> - **OpenAI Agents SDK**（`src/agents_adapter.py`）—— 备选编排后端，指向**任意
+>   OpenAI 兼容端点**（本地 Ollama / vLLM / 云端均可）；
+> - **本地 CLI**（`run_agent.py`）—— 零外部依赖，不需要任何大模型也能跑通确定性流水线。
+>
+> 三者共用同一个计算内核 `src/tools/registry.py`，**换前端不换口径**。
+> 模型接入一律走 OpenAI 兼容接口，本地 / 云端、任意模型均可配置（见 `config.yaml`），
+> **无需改代码**。dsh 插件层（`src/plugins/comp-tool/`）只是可选增强，**不是必经路径**。
 >
 > 项目内部开发名 `comp-agent-harness`，开源仓库名 `salary-diagnosis-cli`，二者指同一项目。
 
@@ -99,25 +105,27 @@ python run_agent.py --demo
 ## 二、架构
 
 ```
-                ┌─────────────────────────────────────────────┐
-   上传/CLI ───▶ │  dsh 运行时（Cordis 插件树）                 │
-   (工资表)      │  · systemPrompt 组装                         │
-                │  · ctx.tools 注册表（11 个工具）              │
+   工资表 ────▶ ┌─────────────────────────────────────────────┐
+   上传/CLI     │  编排前端（可插拔 · 任选其一）                │
+                │  · MCP 客户端（Claude / Cursor / 自研 agent） │
+                │  · OpenAI Agents SDK（任意兼容端点）          │
+                │  · dsh 插件层（可选增强）                     │
+                │  · 本地 CLI / Web UI（可完全无模型）          │
                 └───────────────┬─────────────────────────────┘
                                 │  Function Calling（模型只返回"调哪个函数+参数"）
                                 ▼
                 ┌─────────────────────────────────────────────┐
-   TS 插件层     │  dsh-comp-tool（薄适配，零业务计算）           │
-   (software-    │  index.ts → service.ts(11×defineTool)        │
-    architect-2) │  → bridge.ts（持久 stdio worker）            │
+   适配层        │  mcp_adapter.py（JSON-RPC 2.0 · stdio）      │
+   (零业务计算)  │  agents_adapter.py（OpenAI Agents SDK）      │
+                │  server.py（Content-Length 分帧 stdio）      │
                 └───────────────┬─────────────────────────────┘
-                                │  JSON-RPC 2.0 · Content-Length 分帧
+                                │  registry.call_tool（唯一入口）
                                 ▼
                 ┌─────────────────────────────────────────────┐
-   Python 计算   │  server.py（分发）→ registry.py（单一真理源） │
-   核心          │  loader / diagnose / band / market /         │
-   (engineers)   │  increase / paymix / jobeval / charts /     │
-                │  report / sandbox(PTC) / session             │
+   Python 计算   │  registry.py（单一真理源 · 11 个工具）        │
+   核心          │  loader / diagnose / band / market /        │
+                │  increase / paymix / jobeval / charts /     │
+                │  report / sandbox(PTC) / session            │
                 └───────────────┬─────────────────────────────┘
                                 │  产物落盘（不进模型上下文）
                                 ▼
@@ -203,7 +211,7 @@ python run_agent.py --demo
 > **无需改代码**。默认 provider 为本地 Ollama，且**不回退云端**。
 >
 > **Web UI（可选）**：`pip install -e ".[web]"`（或 `pip install streamlit`）后，
-> 即可用浏览器跑诊断，见下方第 5 步。Web UI 与 CLI 共用同一套底层计算代码。
+> 即可用浏览器跑诊断，见下方第 7 步。Web UI 与 CLI 共用同一套底层计算代码。
 >
 > Windows 下命令行建议带 `PYTHONIOENCODING=utf-8` 前缀防中文乱码；
 > macOS / Linux 直接用 `python3` 即可。
@@ -222,15 +230,39 @@ python mock_data.py
 # 产出 data/sample_salary.csv（标准表头，150 行）、data/messy_salary.csv（脏数据）
 ```
 
-### 3) 本地离线入口（不经 dsh，适合演示/调试）
+### 3) 本地离线入口（不经任何大模型前端，适合演示/调试）
 ```bash
 python run_agent.py --file data/sample_salary.csv
 # 按对话式流程依次调用 11 个工具，最终在 report/ 落盘报告
 ```
 
-### 4) 接入 dsh 插件（自然语言对话形态，可选）
+### 4) 作为 MCP Server 接入任意 agent（推荐 · 零新增依赖）
 ```bash
-# 需要先安装 dsh 运行时；插件层为可选增强，不影响第 1、2 步
+python src/mcp_adapter.py        # 由 MCP 客户端作为子进程 spawn，stdio 通信
+```
+把 `.mcp.json.example` 复制到客户端要求的配置位置即可，等价配置示例：
+```json
+{ "mcpServers": { "salary-diagnosis": {
+    "command": "python",
+    "args": ["src/mcp_adapter.py"],
+    "cwd": "<本仓库绝对路径>" } } }
+```
+已实现 `initialize / ping / tools/list / tools/call`，**纯标准库、无网络出口**；
+工具定义 100% 复用 `registry.TOOL_SPECS`，执行 100% 走 `registry.call_tool`。
+
+### 5) 接入 OpenAI Agents SDK（备选编排后端）
+```bash
+pip install openai-agents
+export OPENAI_BASE_URL=http://localhost:11434/v1   # 任意 OpenAI 兼容端点
+export OPENAI_API_KEY=sk-placeholder
+export OPENAI_MODEL=deepseek-r1:14b
+python src/agents_adapter.py "加载 data/sample_salary.csv，并做现状诊断"
+```
+本适配器不在顶层 import SDK（延迟加载），未安装 `openai-agents` 时仍可 import 自检。
+
+### 6) 接入 dsh 插件（可选增强，非必经路径）
+```bash
+# 需要先安装 dsh 运行时；插件层为可选增强，不影响第 1–5 步
 dsh plugin add ./src/plugins/comp-tool
 dsh --profile comp "帮我看看 data/sample_salary.csv，诊断一下红绿圈"
 ```
@@ -240,7 +272,7 @@ dsh --profile comp "帮我看看 data/sample_salary.csv，诊断一下红绿圈"
 > 默认 provider 在 `config.yaml` 中为 `ollama-local`，且 `models.fallback.enabled:false`
 > —— 本地模型不可用时**不会**偷偷切到云端，宁可报错提示你启动 Ollama。
 
-### 5) Web UI（零命令行，浏览器直接用）
+### 7) Web UI（零命令行，浏览器直接用）
 
 不想记命令行参数？`app.py` 把底层诊断链包成网页界面，全部计算在本机完成，
 **薪酬数据不出内网**：
@@ -327,6 +359,13 @@ Python 确定性执行。好处：① 结果可复现、可被脚本对账；②
 一次性子进程。`dsh-code-runtime-python` 后端交付后可无缝替换。默认**不开启**官方
 Code Mode，避免模型混淆两种语言。
 
+**Q6：这个项目是不是必须用 dsh / DeepSeek？**
+不是。**底层不绑定任何 AI**：11 个工具同时提供三种接法——MCP Server
+（`src/mcp_adapter.py`，任何 MCP 客户端可直接接入）、OpenAI Agents SDK 适配
+（`src/agents_adapter.py`，指向任意 OpenAI 兼容端点）、本地 CLI；dsh 插件只是
+**可选增强之一**。三者共用同一套计算内核，换前端、换模型都不改口径——因为模型
+本来就只负责调度与解读，不参与任何计算。
+
 ---
 
 ## 九、目录结构
@@ -339,6 +378,7 @@ salary-diagnosis-cli/
 ├── requirements.txt         # Python 依赖（pip install -r requirements.txt）
 ├── LICENSE                  # MIT 许可证
 ├── .env.example             # 密钥与环境变量样例（密钥绝不进仓库）
+├── .mcp.json.example        # MCP 客户端配置模板（指向 src/mcp_adapter.py）
 ├── mock_data.py             # 造数脚本（150 行高仿真脱敏数据 + 脏数据变体）
 ├── run_agent.py             # 本地 CLI 入口（零外部依赖也能跑确定性流水线）
 ├── app.py                   # Streamlit Web UI（可选；pip install -e ".[web]" 后 streamlit run app.py）
@@ -346,8 +386,10 @@ salary-diagnosis-cli/
 │   ├── PRD.md               # 产品需求文档（FR/AC/NFR/金标准样例）
 │   └── ARCHITECTURE.md      # 架构与 11 工具接口规格（工程师实现合同）
 ├── src/
+│   ├── mcp_adapter.py       # MCP Server 适配层（任意 MCP 客户端可接入，纯标准库）
+│   ├── agents_adapter.py    # OpenAI Agents SDK 适配层（备选编排后端）
 │   ├── tools/               # Python 计算核心（schemas/loader/diagnose/band/...）
-│   ├── plugins/comp-tool/   # dsh TS 插件（薄适配，software-architect-2 负责）
+│   ├── plugins/comp-tool/   # dsh TS 插件（可选增强，薄适配，零业务计算）
 │   └── skills/comp-analyst/ # 本 Agent 技能（SKILL.md，本文档作者负责）
 ├── data/                    # 输入数据（模拟数据，git 跟踪样例；private/ 不跟踪）
 ├── report/                  # 报告产物
