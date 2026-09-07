@@ -22,7 +22,7 @@
 >
 > 三者共用同一个计算内核 `src/tools/registry.py`，**换前端不换口径**。
 > 模型接入一律走 OpenAI 兼容接口，本地 / 云端、任意模型均可配置（见 `config.yaml`），
-> **无需改代码**。dsh 插件层（`src/plugins/comp-tool/`）只是可选增强，**不是必经路径**。
+> **无需改代码**（见 §五）。
 >
 > 项目内部开发名 `comp-agent-harness`，开源仓库名 `salary-diagnosis-cli`，二者指同一项目。
 
@@ -109,7 +109,6 @@ python run_agent.py --demo
    上传/CLI     │  编排前端（可插拔 · 任选其一）                │
                 │  · MCP 客户端（Claude / Cursor / 自研 agent） │
                 │  · OpenAI Agents SDK（任意兼容端点）          │
-                │  · dsh 插件层（可选增强）                     │
                 │  · 本地 CLI / Web UI（可完全无模型）          │
                 └───────────────┬─────────────────────────────┘
                                 │  Function Calling（模型只返回"调哪个函数+参数"）
@@ -205,13 +204,13 @@ python run_agent.py --demo
 ## 五、如何运行
 
 > **前置**：Python ≥ 3.11，然后 `pip install -r requirements.txt`。
-> 第 1、2 步（确定性流水线）**不需要任何大模型**；第 3 步（对话形态）需要一个
+> 第 1–3 步（确定性流水线）**完全不需要大模型**；第 4、5 步（接入 agent）才需要一个
 > 大模型：基于 **OpenAI 兼容接口**接入——本地 Ollama / vLLM 中的**任意模型**，
 > 或任何 OpenAI 兼容云端 API，在 `config.yaml` 增加一个 provider 条目即可切换，
 > **无需改代码**。默认 provider 为本地 Ollama，且**不回退云端**。
 >
 > **Web UI（可选）**：`pip install -e ".[web]"`（或 `pip install streamlit`）后，
-> 即可用浏览器跑诊断，见下方第 7 步。Web UI 与 CLI 共用同一套底层计算代码。
+> 即可用浏览器跑诊断，见下方第 6 步。Web UI 与 CLI 共用同一套底层计算代码。
 >
 > Windows 下命令行建议带 `PYTHONIOENCODING=utf-8` 前缀防中文乱码；
 > macOS / Linux 直接用 `python3` 即可。
@@ -260,19 +259,10 @@ python src/agents_adapter.py "加载 data/sample_salary.csv，并做现状诊断
 ```
 本适配器不在顶层 import SDK（延迟加载），未安装 `openai-agents` 时仍可 import 自检。
 
-### 6) 接入 dsh 插件（可选增强，非必经路径）
-```bash
-# 需要先安装 dsh 运行时；插件层为可选增强，不影响第 1–5 步
-dsh plugin add ./src/plugins/comp-tool
-dsh --profile comp "帮我看看 data/sample_salary.csv，诊断一下红绿圈"
-```
-模型会按 `src/skills/comp-analyst/SKILL.md` 的剧本自动走完
-`load → confirm → diagnose → band → benchmark → increase → paymix → report`。
-
 > 默认 provider 在 `config.yaml` 中为 `ollama-local`，且 `models.fallback.enabled:false`
 > —— 本地模型不可用时**不会**偷偷切到云端，宁可报错提示你启动 Ollama。
 
-### 7) Web UI（零命令行，浏览器直接用）
+### 6) Web UI（零命令行，浏览器直接用）
 
 不想记命令行参数？`app.py` 把底层诊断链包成网页界面，全部计算在本机完成，
 **薪酬数据不出内网**：
@@ -353,18 +343,12 @@ Python 确定性执行。好处：① 结果可复现、可被脚本对账；②
 当带宽幅度 ≥ 50% 时，CR 阈值会被带宽边界收紧（见 §四.2）。本项目默认幅度均 <50%，
 直接用 0.80/1.20。以工具返回的 `effective_thresholds` 为准。
 
-**Q5：PTC（run_comp_code）和 dsh 官方 Code Mode 什么关系？**
-本项目自建的 `run_comp_code` 与官方 `run_code` 传输契约同构
+**Q5：PTC（run_comp_code）为什么自建，不直接用现成的 Code Mode？**
+自建的 `run_comp_code` 与主流 Code Mode 的传输契约同构
 （`{code, description}` → `{logs, result}`），差异仅在执行语言为 Python、执行环境为
-一次性子进程。`dsh-code-runtime-python` 后端交付后可无缝替换。默认**不开启**官方
-Code Mode，避免模型混淆两种语言。
-
-**Q6：这个项目是不是必须用 dsh / DeepSeek？**
-不是。**底层不绑定任何 AI**：11 个工具同时提供三种接法——MCP Server
-（`src/mcp_adapter.py`，任何 MCP 客户端可直接接入）、OpenAI Agents SDK 适配
-（`src/agents_adapter.py`，指向任意 OpenAI 兼容端点）、本地 CLI；dsh 插件只是
-**可选增强之一**。三者共用同一套计算内核，换前端、换模型都不改口径——因为模型
-本来就只负责调度与解读，不参与任何计算。
+一次性子进程，并叠加了三层边界（AST 静态检查 / 运行时 builtins 白名单 / 隔离子进程）。
+待官方 Python 运行时后端可用后可无缝替换。默认**不开启**外部 Code Mode，
+避免模型混淆两种执行环境。
 
 ---
 
@@ -389,8 +373,8 @@ salary-diagnosis-cli/
 │   ├── mcp_adapter.py       # MCP Server 适配层（任意 MCP 客户端可接入，纯标准库）
 │   ├── agents_adapter.py    # OpenAI Agents SDK 适配层（备选编排后端）
 │   ├── tools/               # Python 计算核心（schemas/loader/diagnose/band/...）
-│   ├── plugins/comp-tool/   # dsh TS 插件（可选增强，薄适配，零业务计算）
-│   └── skills/comp-analyst/ # 本 Agent 技能（SKILL.md，本文档作者负责）
+│   ├── plugins/comp-tool/   # 插件式前端原型（早期形态，非必需）
+│   └── skills/comp-analyst/ # 诊断流程剧本（SKILL.md，定义工具调用顺序）
 ├── data/                    # 输入数据（模拟数据，git 跟踪样例；private/ 不跟踪）
 ├── report/                  # 报告产物
 ├── assets/                  # 图表 HTML/PNG 与明细 CSV
