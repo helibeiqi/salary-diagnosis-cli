@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>salary-diagnosis-cli · 一个数都不让 AI 算的薪酬诊断工具</title>
+<meta name="description" content="本地优先、模型不碰计算、默认脱敏的开源薪酬诊断 CLI。11 个确定性工具覆盖现状诊断、带宽设计、市场对标、调薪模拟、固浮比与岗位评估。">
+<style>
+  :root{
+    --ink:#1c2733; --sub:#5a6b7b; --line:#d8dfe6;
+    --navy:#16385c; --teal:#0e6e5c; --amber:#9a5b0c; --bg:#f5f7f9;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;
+    color:var(--ink); background:#eef1f4; font-size:15px; line-height:1.7; font-weight:400;
+  }
+  b,strong{font-weight:600;}
+  h1,h2,h3,th{font-weight:700;}
+  .wrap{max-width:960px; margin:0 auto; background:#fff; box-shadow:0 2px 14px rgba(0,0,0,.10);}
+  .pad{padding:34px 44px;}
+
+  .masthead{border-bottom:3px solid var(--navy); padding-bottom:18px;}
+  .kicker{font-size:12px; letter-spacing:.18em; color:var(--teal); font-weight:700; margin-bottom:8px;}
+  h1{font-size:30px; color:var(--navy); line-height:1.32; margin-bottom:10px;}
+  .sub1{font-size:16px; color:var(--sub);}
+  .pill{display:inline-block; background:var(--bg); border:1px solid var(--line); border-radius:3px;
+        padding:2px 10px; margin:12px 8px 0 0; font-size:13px; color:var(--sub);}
+  .lead{margin-top:20px; font-size:19px; line-height:1.72; color:var(--ink);
+        border-left:4px solid var(--teal); padding-left:16px;}
+  .lead b{color:var(--teal);}
+
+  h2{font-size:20px; color:var(--navy); margin:38px 0 14px; padding-left:11px; border-left:4px solid var(--teal);}
+  h3{font-size:16px; margin:22px 0 6px;}
+  p{margin:10px 0;}
+
+  .cards{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:16px 0;}
+  .card{border:1px solid var(--line); border-top:3px solid var(--teal); padding:16px 18px; background:#fff;}
+  .card b{display:block; color:var(--navy); font-size:16px; margin-bottom:6px;}
+  .card span{color:var(--sub); font-size:14px;}
+
+  .why{background:var(--bg); border-left:3px solid var(--navy); padding:14px 18px; margin:14px 0; font-size:15px; color:var(--sub);}
+
+  .fig2{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:18px 0;}
+  figure{margin:0;}
+  figure img{width:100%; border:1px solid var(--line); display:block; background:#fff;}
+  figcaption{font-size:13px; color:var(--sub); margin-top:7px;}
+
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:14px;}
+  th{background:var(--navy); color:#fff; text-align:left; padding:8px 12px; font-weight:500;}
+  td{border-bottom:1px solid var(--line); padding:8px 12px; vertical-align:top;}
+  tr:nth-child(even) td{background:var(--bg);}
+  td.num,th.num{text-align:right; font-variant-numeric:tabular-nums;}
+
+  pre{background:#0f2233; color:#dbe7f1; font-family:Consolas,"Courier New",monospace;
+      font-size:13px; line-height:1.6; padding:14px 16px; border-radius:3px; overflow-x:auto; margin:10px 0;}
+  .codecap{font-size:13px; color:var(--sub); margin:0 0 14px;}
+
+  ul{margin:10px 0 10px 22px;}
+  li{margin:5px 0;}
+
+  .note{font-size:13px; color:var(--sub); border-top:1px solid var(--line); margin-top:8px; padding-top:10px;}
+  .foot{border-top:1px solid var(--line); padding:20px 44px 30px; display:flex;
+        justify-content:space-between; flex-wrap:wrap; gap:8px; font-size:13px; color:var(--sub);}
+  .foot a{color:var(--teal); text-decoration:none;}
+  .foot a:hover{text-decoration:underline;}
+
+  @media (max-width:760px){
+    .pad{padding:22px 20px;}
+    .foot{padding:18px 20px 24px;}
+    h1{font-size:24px;}
+    .lead{font-size:17px;}
+    .cards{grid-template-columns:1fr;}
+    .fig2{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="pad masthead">
+    <div class="kicker">开源项目 · OPEN SOURCE</div>
+    <h1>一个数都不让 AI 算的<br>薪酬诊断工具</h1>
+    <div class="sub1">salary-diagnosis-cli —— 本地优先、模型不碰计算、默认脱敏的薪酬诊断 CLI</div>
+    <div>
+      <span class="pill">源自真实薪酬场景</span>
+      <span class="pill">Python · 30 个模块</span>
+      <span class="pill">MIT 开源 · 28 次提交</span>
+      <span class="pill">合成数据全链可复现</span>
+    </div>
+    <p class="lead">让大模型负责<b>听懂人话、串起流程、把结果讲成人话</b>；<br>
+    所有跟钱有关的计算，一律交给一段<b>确定性程序</b>去算。</p>
+  </div>
+
+  <div class="pad">
+
+    <h2>三十秒：凭什么敢用</h2>
+    <div class="cards">
+      <div class="card">
+        <b>模型不碰数字</b>
+        <span>它只返回「调哪个函数、传什么参数」，11 个工具确定性执行。结果可复现、可审计——错也能查得出来。</span>
+      </div>
+      <div class="card">
+        <b>数据默认不出门</b>
+        <span>默认本地模型运行，本地不可用时只报错、<b>不回退云端</b>；一键脱敏；绝不打印真实明细；产物落盘不进模型上下文。</span>
+      </div>
+      <div class="card">
+        <b>口径只写在一处</b>
+        <span>业务常量集中管理，沙箱与主路径共用同一执行入口。改一版不会对不上上一版，不会出现「偶尔不对」。</span>
+      </div>
+    </div>
+
+    <h2>它解决的三件麻烦事</h2>
+    <div class="why">
+      排调薪方案时改一版大半天；通用大模型给的方案<b>总额超预算</b>，而且错得很有道理、查不出来。<br>
+      谁在带宽哪一段、谁该调、调多少、全年加薪会不会超——只看得见一张底表，看不见结构。<br>
+      口径会漂：市场数据取哪个来源、按中位还是高位对标，人手工整都会漂，何况 AI 每次重新理解一遍。
+    </div>
+
+    <h2>跑出来的样子</h2>
+    <div class="fig2">
+      <figure>
+        <img src="img/cr_distribution.png" alt="薪酬比率 CR 分布与红绿圈判定">
+        <figcaption>CR 分布：红圈（CR&gt;1.20）与绿圈（CR&lt;0.80）自动判定，不用在透视表里肉眼找。</figcaption>
+      </figure>
+      <figure>
+        <img src="img/cr_before_after.png" alt="调薪前后 CR 位移对比">
+        <figcaption>调薪前后：同一批人的 CR 位移，方案效果一眼可见。</figcaption>
+      </figure>
+    </div>
+    <div class="fig2">
+      <figure>
+        <img src="img/market_gap.png" alt="与市场分位的偏离度">
+        <figcaption>市场对标：各职级中位与市场 P50 / P75 的偏离。</figcaption>
+      </figure>
+      <figure>
+        <img src="img/strategy_cost.png" alt="四种调薪策略的成本对比">
+        <figcaption>策略对比：平均 / 优先补绿圈 / 按绩效加权 / 优先保留红圈，四种打法的成本与红绿圈变化。</figcaption>
+      </figure>
+    </div>
+
+    <h2>数字是可以当场复算的</h2>
+    <p>下面是内置<b>合成样例数据</b>（150 条，与任何真实自然人无关）跑出的结果，任何人跑同一条命令都会得到同一组数字：</p>
+    <table>
+      <tr><th>输出项</th><th class="num">结果</th></tr>
+      <tr><td>红圈（薪酬偏高）</td><td class="num">31 人 · 20.67%</td></tr>
+      <tr><td>绿圈（薪酬偏低）</td><td class="num">26 人 · 17.33%</td></tr>
+      <tr><td>带宽内合理</td><td class="num">93 人 · 62.00%</td></tr>
+      <tr><td>预算 5% 对应总额</td><td class="num">1,958,520 元</td></tr>
+      <tr><td>优先补绿圈：第一步补差成本</td><td class="num">472,889 元 / 26 人</td></tr>
+    </table>
+    <p class="note">这组数字同时是 CI 里的金标准对账用例——口径一改，测试立刻失败。这也是「可审计」的具体含义。</p>
+
+    <h2>三条命令跑通（不需要任何大模型）</h2>
+<pre>git clone https://github.com/helibeiqi/salary-diagnosis-cli.git
+cd salary-diagnosis-cli &amp;&amp; pip install -r requirements.txt
+python run_agent.py --demo</pre>
+    <div class="codecap">最后一条用内置合成数据零交互跑完整链，报告落在 <code>report/</code>。不需要配置模型，也不需要联网。</div>
+
+    <h2>接什么 AI 都行：编排层可插拔</h2>
+    <p>同一套计算内核，三种接法任选，<b>不绑定任何 AI 平台</b>：</p>
+    <ul>
+      <li><b>MCP Server</b>（<code>src/mcp_adapter.py</code>，纯标准库）—— 任何 MCP 客户端可直接接入</li>
+      <li><b>OpenAI Agents SDK</b>（<code>src/agents_adapter.py</code>）—— 指向任意 OpenAI 兼容端点</li>
+      <li><b>本地 CLI / Web UI</b> —— 完全不用大模型也能跑确定性流水线</li>
+    </ul>
+    <p class="note">换前端、换模型都不改口径——因为模型本来就只负责调度与解读，不参与任何计算。</p>
+
+    <h2>坦诚的局限</h2>
+    <div class="why">
+      这套设计兜得住「算错」，<b>兜不住「想错」</b>：方法论本身对不对（市场对标选哪个来源、带宽幅度定多少），仍然要靠人判断。<br>
+      目前主要使用者是作者本人，尚无成规模的外部用户——这也是选择开源的原因。
+    </div>
+
+  </div>
+
+  <div class="foot">
+    <div>何李贝奇（Ethan） ｜ 薪酬 / C&amp;B 方向 ｜ 独立开发</div>
+    <div><a href="https://github.com/helibeiqi/salary-diagnosis-cli">GitHub · helibeiqi/salary-diagnosis-cli</a> ｜ MIT License</div>
+  </div>
+
+</div>
+</body>
+</html>
