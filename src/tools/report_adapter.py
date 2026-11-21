@@ -114,6 +114,16 @@ def _round2(x: Optional[float]) -> Optional[float]:
     return None if x is None else round(x, 2)
 
 
+def _round4(x: Optional[float]) -> Optional[float]:
+    """4 位小数：当报告层还要按 %.3f 二次格式化时用，避免两步取整造出假值。
+
+    CR 标准差量级约 0.1–0.3，先 round(., 2) 会压成 0.18，报告层再补一位
+    显示成「0.180」，与 CLI 摘要打印的 0.1757 对不上 —— 同一指标两个视图
+    两个数，属口径漂移。此处只收敛到 4 位，最终显示精度交给报告层统一决定。
+    """
+    return None if x is None else round(x, 4)
+
+
 # =============================================================================
 # 二、会话 DataFrame 补算：各职级薪酬分布
 # =============================================================================
@@ -268,7 +278,7 @@ def _view_diagnose(sec: Dict[str, Any], df, payroll: Optional[float]) -> Dict[st
             "salary_median": _round2(_salary_median(df)),
             "cr_mean": _round2(_f(cr.get("mean"))),
             "cr_median": _round2(_f(cr.get("median"))),
-            "cr_std": _round2(_f(cr.get("std"))),
+            "cr_std": _round4(_f(cr.get("std"))),
         },
         "circles": {
             "red": _grp(red_n, cost.get("red_overflow_annual")),

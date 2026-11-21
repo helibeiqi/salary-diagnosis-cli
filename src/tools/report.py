@@ -846,13 +846,14 @@ def _s2_data_overview(ctx: _ReportCtx) -> List[str]:
     )
     L.append("")
 
-    # ---- 2.2 字段映射表（AI 语义识别的成果展示） ----
+    # ---- 2.2 字段映射表（词根路由引擎的成果展示） ----
     mapping = _get(mp, "mapping", default={}) or {}
     conf = _get(mp, "confidence", default={}) or {}
     if mapping:
         L.append("### 2.2 字段映射说明")
         L.append("")
-        L.append("原始表头由模型按语义识别并映射到标准字段；置信度低于 80 的行建议人工复核。")
+        L.append("原始表头由内置词根路由引擎按语义规则自动识别并映射到标准字段，"
+                 "仅歧义列交人工或模型拍板；置信度低于 80 的行建议人工复核。")
         L.append("")
         rows: List[List[Any]] = []
         for raw_col, std in mapping.items():
