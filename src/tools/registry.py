@@ -478,22 +478,39 @@ TOOL_SPECS: Tuple[ToolSpec, ...] = (
         name="calc_job_score",
         title="岗位价值评估",
         description=(
-            "用海氏三要素法（hay）或美世 IPE 四因素法（mercer）给岗位打分，"
-            "输出各要素加权得分、岗位分值（job_score = round(原始分×160)）与建议职级。"
-            "子维度按 1-10 分打分；缺失维度按同要素均值兜底并记警告。"
-            "注意：本项目为简易打分表，非正式认证评估。"
+            "给岗位打分并映射建议职级。hay=海氏 Guide Chart 点数法"
+            "（总分=知识技能+知识技能×解决问题%+应负责任，非线性查表，"
+            "刻度为公开原理自建校准）；mercer=美世 IPE 要素命名的线性近似打分卡"
+            "（子维度 1-10 平均加权 ×160，如实标注非正式 IPE）。"
+            "子维度缺失会告警（hay 按 0 点/中位档兜底；mercer 权重重归一化）。"
+            "输出总分（0-1600）与建议职级，并统计与现状职级的错配。"
         ),
         module="jobeval", attr="calc_job_score", stage=8,
         concurrency_safe=True,
         parameters={
             "session_id": {"type": "string", "description": "会话 ID（批量打分或回写职级建议时需要）"},
             "model": {"type": "string", "enum": ["hay", "mercer"], "required": True,
-                      "description": "hay=海氏三要素；mercer=美世 IPE 四因素"},
+                      "description": "hay=海氏 Guide Chart 点数法；mercer=美世 IPE 线性近似打分卡"},
             "position": {"type": "string", "description": "岗位名称，用于输出标题"},
             "scores": {"type": "object", "additionalProperties": {"type": "number"},
-                       "description": "子维度 → 1-10 分，子维度名见 schemas.JOB_EVAL_MODELS[model]"},
+                       "description": "子维度 → 1-10 等级分，子维度名与锚定描述见 get_job_eval_guide"},
             "batch_file": {"type": "string", "description": "批量打分表路径（csv/xlsx），与 scores 二选一"},
             "template_out": {"type": "string", "description": "指定则导出空白打分模板到该路径"},
+        },
+    ),
+    ToolSpec(
+        name="get_job_eval_guide",
+        title="岗位评估打分指南",
+        description=(
+            "返回指定模型（hay/mercer）的打分指南：方法说明、子维度清单、"
+            "每个子维度 1-10 档的行为锚定描述（BARS），海氏另附查表刻度说明。"
+            "打分前先查本工具，让分数有可辩护依据；无会话依赖，随时可调。"
+        ),
+        module="jobeval", attr="get_job_eval_guide", stage=8,
+        concurrency_safe=True,
+        parameters={
+            "model": {"type": "string", "enum": ["hay", "mercer"], "required": True,
+                      "description": "hay=海氏三要素；mercer=美世 IPE 四因素"},
         },
     ),
     ToolSpec(
@@ -542,7 +559,10 @@ TOOL_SPECS: Tuple[ToolSpec, ...] = (
 TOOLS_BY_NAME: Dict[str, ToolSpec] = {s.name: s for s in TOOL_SPECS}
 TOOL_NAMES: Tuple[str, ...] = tuple(s.name for s in TOOL_SPECS)
 
-assert len(TOOL_SPECS) == 11, f"工具数必须是 11，当前 {len(TOOL_SPECS)}"
+assert len(TOOL_SPECS) == 12, (
+    f"工具数必须是 12（2026-11-21 新增 get_job_eval_guide），当前 {len(TOOL_SPECS)}；"
+    "增删工具请同步本断言与 tests/test_meta_contract.py"
+)
 
 
 # =============================================================================
