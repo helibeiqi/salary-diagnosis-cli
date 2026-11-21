@@ -60,6 +60,15 @@ _LEVEL_RANK = {
 
 # 关键词 → 职级（正则，大小写不敏感；中文 / 英文 / 缩写都覆盖）。
 # 顺序无关紧要：运行时按 _LEVEL_RANK 取最资深命中。
+# ---------------------------------------------------------------------------
+# R5（2026-11-21）：职级推断覆盖率人工复核线。
+#   推断覆盖率 < 70% 时，report["needs_level_review"] = True，
+#   confirm_mapping 会追加「建议人工复核」警告——UNKNOWN 单列过多时，
+#   带宽重叠与 CR 诊断的代表性受限，不能默认"推断够了"。
+#   70% 是经验线（约 1/3 以上职位不可解释时，诊断口径已明显失真），
+#   改这里即可全局生效。
+REVIEW_THRESHOLD: float = 0.70
+
 _KEYWORD_LEVEL: List[Tuple[str, str]] = [
     # —— 实习 / 助理层 ——
     (r"实习|intern|trainee|学徒", "O1"),
@@ -212,6 +221,8 @@ def infer_levels(
         "already_had": 0,
         "unresolved": 0,
         "coverage": 0.0,
+        "needs_level_review": False,
+        "review_threshold": REVIEW_THRESHOLD,
         "unresolved_label": "UNKNOWN",
         "unresolved_samples": [],
     }
@@ -229,6 +240,8 @@ def infer_levels(
             report["inferred"] = non_empty
             report["unresolved"] = total - non_empty
             report["coverage"] = round(non_empty / total, 4) if total else 0.0
+            report["needs_level_review"] = (
+                total > 0 and report["coverage"] < REVIEW_THRESHOLD)
             # 仍收集未识别样本（供用户复核原有 level 的完整性）
             if report["unresolved"]:
                 report["unresolved_samples"] = [
@@ -238,6 +251,7 @@ def infer_levels(
 
     if title_col not in out.columns:
         report["unresolved"] = total
+        report["needs_level_review"] = total > 0
         return out, report
 
     titles = out[title_col].astype("object")
@@ -255,6 +269,8 @@ def infer_levels(
     report["inferred"] = inferred
     report["unresolved"] = unresolved
     report["coverage"] = round(inferred / total, 4) if total else 0.0
+    report["needs_level_review"] = (
+        total > 0 and report["coverage"] < REVIEW_THRESHOLD)
     report["unresolved_samples"] = [
         str(v)[:30] for v in titles[unresolved_mask].dropna().head(8).tolist()
     ]

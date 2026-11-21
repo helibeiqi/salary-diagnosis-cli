@@ -33,7 +33,7 @@
 - [x] **R2 图表与报告护栏**（已修，见上）。
 - [x] **R3 `desensitize` ↔ 报告标记打通（已落地）**：`desensitize()` 已显式把 `data_classification=sanitized` 写入 session meta（`loader.py:1498`），即便重加载也带标记；`load_salary_data` 同时按文件名兜底（`_desensitized.csv` → sanitized）。本次（P1-4）进一步把该分级体系扩展到 **`synthetic`/`simulated`**：`mock_data.py` 产出的 `sample_salary.csv`/`messy_salary.csv` 加载后自动识别为模拟数据，报告渲染中性「模拟数据，可安全演示」横幅、**不**触发真实数据红字水印与 `data_guard.md` 护栏；`load_salary_data` 亦接受显式 `data_classification` 参数。护栏逻辑因此**不再依赖单一命名约定**。
 - [x] **R4 外发二次确认门（已落地）**：`generate_report` 在 `classification=real` 且未确认时，除 stderr 警告外额外生成 `报告名.data_guard.md` 安全提示文件；CLI 层 `--i-know-this-is-real-data`（`main.py:495`）可抑制该提示，避免误把真实报告提交到公开仓库。
-- [ ] **R5 推断覆盖率阈值告警**：R1 推断覆盖率低于阈值（建议 70%）时，除 warning 外，在 `confirm_mapping` 返回里标 `needs_level_review=True`，驱动调用方（人或模型）在落库前复核，而非仅被动提示。
+- [x] **R5 推断覆盖率阈值告警（已落地 2026-11-21，v0.3.0）**：`level_infer.REVIEW_THRESHOLD=0.70`；覆盖率低于复核线时 `infer_levels` report 标 `needs_level_review=True`，`confirm_mapping` 返回值与 `meta['mapping']` 透出该 flag 并追加「人工复核建议」警告（含覆盖率、复核线与未识别示例）。空表不触发、恰好 70% 不触发（严格小于）。
 
 ### P2 — 体验 / 可扩展性
 - [ ] **R6 单测覆盖（CI 部分已完成）**：~~接入 GitHub Actions 跑 `pytest`~~ ✅ CI 已上线（`ci.yml`：pytest → golden → e2e → 安全闸门，2026-09-03 起）；待补 `tests/test_level_infer.py`（启发式 + 覆盖率）、`tests/test_report_guard.py`（真实/脱敏水印分支）、脱敏往返测试（脱敏→重加载→报告标注 sanitized）。CI 已含 `src/data/` / `assets/` 误提交硬失败（`ci_security_gate.py`）。
@@ -61,8 +61,8 @@
 ### R4 外发二次确认门（规划中，P1）
 - `generate_report` 在真实数据 + HTML 输出时，强制交互确认或落 `data_guard.md`，CLI 提供 `--i-know-this-is-real-data` 显式放行。
 
-### R5 推断覆盖率阈值告警（规划中，P1）
-- 覆盖率 < 70% → `confirm_mapping` 返回 `needs_level_review=True`，驱动复核而非仅提示。
+### R5 推断覆盖率阈值告警（✅ 已落地 2026-11-21）
+- 覆盖率 < 70%（严格小于，恰好 70% 不触发）→ `infer_levels` report 与 `confirm_mapping` 返回值/meta 均标 `needs_level_review=True`，并追加「人工复核建议」警告驱动复核而非仅提示。回归：`tests/test_needs_level_review.py`（7 项，含端到端）。
 
 ### R6 单测与 CI 覆盖（规划中，P2）
 - 新增 level_infer / report_guard / 脱敏往返单测；GitHub Actions 跑 pytest，对 `src/data/` 与 `assets/*.html` 误提交 fail。

@@ -27,13 +27,21 @@
 - `calc_job_score` 走 job_score 列降级路径时（海氏）新增提示：该路径只有线性
   量纲含义，Guide Chart 结构未生效。
 
+### 新增（R5：职级推断覆盖率人工复核，2026-11-21）
+- **ROADMAP R5 落地**：`level_infer.REVIEW_THRESHOLD = 0.70`——职级推断覆盖率
+  **低于 70%（严格小于，恰好 70% 不触发）**时，`infer_levels` report 标
+  `needs_level_review=True`；`confirm_mapping` 返回值与 `meta['mapping']` 透出
+  该 flag，并追加「人工复核建议」警告（含覆盖率、复核线与未识别职位示例），
+  驱动调用方（人或模型）在落库前复核而非仅被动提示。空表不触发。
+  回归：`tests/test_needs_level_review.py`（7 项，含 confirm_mapping 端到端）。
+
 ### 文档
 - README「六、岗位价值评估」章节重写；金标准样例标注 job_score 降级路径口径。
 
 ### 验证
-- pytest **43 passed**（含新增 `tests/test_jobeval_guide_chart.py` 16 项，
-  `-W error::DeprecationWarning` 严格模式通过）；金标准对账 **16 PASS**；
-  e2e 回归 **28 PASS**；`--demo` 全链路 9/9 步正常出报告。
+- pytest **50 passed**（含新增 `tests/test_jobeval_guide_chart.py` 16 项、
+  `tests/test_needs_level_review.py` 7 项，`-W error::DeprecationWarning` 严格模式
+  通过）；金标准对账 **16 PASS**；e2e 回归 **28 PASS**；`--demo` 全链路 9/9 步正常出报告。
 
 ## [0.2.2] — 2026-09-04
 

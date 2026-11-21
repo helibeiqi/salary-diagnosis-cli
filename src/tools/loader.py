@@ -1242,6 +1242,22 @@ def confirm_mapping(session_id: str, mapping: Dict[str, str],
                 f"依赖职级的分析仍无法进行；建议手工补列后重跑。"
             )
 
+    # ---- 2.6) R5：推断覆盖率不足 → 提示人工复核（2026-11-21 落地）------------
+    #  设计判断：UNKNOWN 单列过多时，带宽/CR 诊断的代表性受限，不能默认
+    #  "推断够了就继续"。needs_level_review=True 时追加显式复核警告，
+    #  并把 flag 写进 meta 与返回值，供模型/前端引导用户补 level。
+    needs_level_review = bool(
+        level_infer_report and level_infer_report.get("needs_level_review"))
+    if needs_level_review:
+        cov_r = float(level_infer_report.get("coverage", 0.0))
+        thr = float(level_infer_report.get("review_threshold", 0.70))
+        warnings.append(
+            f"【人工复核建议】职级推断覆盖率 {cov_r:.0%} 低于 {thr:.0%} 复核线："
+            f"未识别职位过多（UNKNOWN 单列），带宽重叠与 CR 诊断的代表性受限。"
+            f"建议人工确认这些职位的目标职级并补 level 列后重新 confirm_mapping；"
+            f"未识别示例：{level_infer_report.get('unresolved_samples') or '无'}"
+        )
+
     # ---- 3) 应用映射 + 清洗 + 落盘 ------------------------------------------
     #  设计判断（偏离架构的显式说明）：
     #  架构把 clean_dataframe 列为内部函数，但若不在这里顺带清洗，
@@ -1275,6 +1291,7 @@ def confirm_mapping(session_id: str, mapping: Dict[str, str],
             "confirmed_at": _now(),
             "source_file": source_file or session.meta.get("source_file"),
             "missing_required": missing_required,
+            "needs_level_review": needs_level_review,
         },
         "coerce_report": coerce_report,
         "shape": {"rows": int(df_clean.shape[0]), "cols": int(df_clean.shape[1])},
@@ -1297,6 +1314,7 @@ def confirm_mapping(session_id: str, mapping: Dict[str, str],
         mapped_fields=mapped_fields,
         unmapped_columns=unmapped_columns,
         missing_required=missing_required,
+        needs_level_review=needs_level_review,
         rows_in=int(coerce_report.get("rows_in", len(session.df))),
         rows_out=int(coerce_report.get("rows_out", len(df_clean))),
         coerce_report=coerce_report,
