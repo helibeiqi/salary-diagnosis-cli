@@ -18,6 +18,7 @@
 | **P1-4 模拟数据分级** | ✅ 已落地（本批） | `sample_salary.csv`/`messy_salary.csv` 等合成演示数据加载后自动判为 `synthetic`，报告去红字水印、可安全外发演示；`load_salary_data(..., data_classification=...)` 可显式覆盖。 |
 | **P0 perf_grade 崩溃** | ✅ 已落地（v0.1.1） | `increase._resolve_perf_weights` 在缺 `perf_grade` 列时优雅回退，不再 `KeyError`。 |
 | **开源化基建（v0.2.1，2026-09-04）** | ✅ 已落地 | ① 修复 CI 连续 6 次失败的根因：`test_charts_report.py` / `test_report_viz.py` 两处 f-string 内嵌 `\"` 转义（py<3.12 语法错误，PEP 701），改为先取计数再进 f-string；`test_selfcheck_ta.py` 模块级 `os.remove` 加保护（收集阶段清理失败不再中断）。② 新增 `LICENSE`（MIT）、`requirements.txt`、`pyproject.toml`（含 `pip install -e .` 与 `salary-diagnosis` 命令入口）、`config.example.yaml`、`CONTRIBUTING.md`。③ README 修正运行指引（项目名与克隆目录一致、解释器路径通用化、dsh 插件层声明为可选增强）。 |
+| **岗位评估专业化（v0.3.0，2026-11-21）** | ✅ 已落地 | ① **B（方法升级）**：海氏从线性打分卡升级为 **Guide Chart 点数法**（总分 = KH + KH×PS% + ACC，非线性查表；刻度按公开原理自建校准，商业版图表为 Korn Ferry 专有 IP 不使用不复制），校准约束由 `tests/test_jobeval_guide_chart.py` 锁定；② **A①（诚实标注）**：美世 label/method 明示"线性近似打分卡"（正版 IPE 阶梯表为 Mercer 专有 IP）；③ **A②（静默缺陷）**：子维度缺失告警——美世要素缺失权重重归一化、海氏按 0 点/中位档兜底，逐行告警聚合计数，不再静默低估总分；④ **A③（BARS）**：18 个子维度 × 4 档行为锚定描述，新增工具 `get_job_eval_guide`（工具总数 11→12）。 |
 
 ---
 
